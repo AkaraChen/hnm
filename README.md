@@ -1,0 +1,61 @@
+# hnm
+
+Install a complete **agent documentation harness** into any project — the same shape used by fengwu-bench:
+
+- `docs/prd/`, `docs/adr/`, `docs/spec.md`
+- `AGENTS.md` + `CLAUDE.md` symlink
+- `$feature-dev` skill (one-question 质问 before implementation)
+- Claude/Codex skill wiring and pre-commit documentation review gate
+
+## Install
+
+```bash
+cargo install --path .
+```
+
+## Usage
+
+```bash
+# Install into the current directory
+hnm init
+
+# Target path, name, and stack preset
+hnm init ./my-app --name my-app --stack rust
+
+# Preview without writing
+hnm init --dry-run
+
+# Overwrite existing harness files
+hnm init --force
+```
+
+### Stack presets
+
+| `--stack` | Commands section |
+|-----------|------------------|
+| `generic` (default) | Placeholder notes |
+| `rust` | cargo build/test/clippy/fmt |
+| `node` | npm scripts |
+| `bun` | bun scripts |
+| `go` | go test/build/vet |
+| `python` | pytest/ruff/mypy when configured |
+
+## What gets written
+
+| Path | Notes |
+|------|--------|
+| `AGENTS.md` | Workflow + docs rules + stack commands |
+| `CLAUDE.md` | → `AGENTS.md` |
+| `docs/spec.md` | Bootstrap specification |
+| `docs/prd/`, `docs/adr/` | Empty dirs with `.gitkeep` |
+| `.agents/skills/feature-dev/` | Full 质问 skill |
+| `.claude/skills` | → `../.agents/skills` |
+| `.claude/settings.json` | Commit doc-review hook |
+| `.codex/hooks.json` + `spec_doc_review.py` | Codex commit gate |
+
+## Develop
+
+```bash
+cargo test
+cargo run -- init --help
+```
