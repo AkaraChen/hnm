@@ -75,7 +75,7 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 
 ## 已解决的产品决策
 
-- 产品名是 `hnm`：把 标准 agent 文档 harness 自动落到项目中的工具。
+- 产品名是 `hnm`：把标准 agent 文档 harness 自动落到项目中的工具。
 - 子命令为 `init`；首版只有这一主命令（另可有默认 help）。
 - 模板引擎选用 Rust 生态中 Jinja 兼容且活跃的 minijinja。
 - CLI 框架为 clap derive。

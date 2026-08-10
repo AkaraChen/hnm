@@ -2,7 +2,7 @@
 
 ## Product scope
 
-`hnm` is a CLI that installs a complete agent documentation harness into a target project directory. The harness is the standard three-layer layout: three-layer docs (`docs/prd/`, `docs/adr/`, `docs/spec.md`), root `AGENTS.md` workflow rules, the `feature-dev` 质问 skill, Claude/Codex skill wiring, and a pre-commit documentation review gate.
+`hnm` is a CLI that installs a complete agent documentation harness into a target project directory. The harness is a standard three-layer layout: docs (`docs/prd/`, `docs/adr/`, `docs/spec.md`), root `AGENTS.md` workflow rules, the `feature-dev` 质问 skill, Claude/Codex skill wiring, and a pre-commit documentation review gate.
 
 The tool does not scaffold application business code, package managers, CI, or git repositories.
 

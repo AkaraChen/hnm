@@ -1,6 +1,6 @@
 # hnm
 
-Install a complete **agent documentation harness** into any project — a consistent documentation harness layout:
+Install a complete **agent documentation harness** into any project:
 
 - `docs/prd/`, `docs/adr/`, `docs/spec.md`
 - `AGENTS.md` + `CLAUDE.md` symlink
