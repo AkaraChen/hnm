@@ -62,6 +62,7 @@ mod tests {
         assert!(out.contains("`demo`"));
         assert!(out.contains("cargo test"));
         assert!(out.contains("$feature-dev"));
+        assert!(out.contains("$git-commit"));
     }
 
     #[test]

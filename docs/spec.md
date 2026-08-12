@@ -2,7 +2,7 @@
 
 ## Product scope
 
-`hnm` is a CLI that installs a complete agent documentation harness into a target project directory. The harness is a standard three-layer layout: docs (`docs/prd/`, `docs/adr/`, `docs/spec.md`), root `AGENTS.md` workflow rules, the `feature-dev` 质问 skill, Claude/Codex skill wiring, and a pre-commit documentation review gate.
+`hnm` is a CLI that installs a complete agent documentation harness into a target project directory. The harness is a standard three-layer layout: docs (`docs/prd/`, `docs/adr/`, `docs/spec.md`), root `AGENTS.md` workflow rules, installed agent skills (`feature-dev` 质问 and `git-commit`), Claude/Codex skill wiring, and a pre-commit documentation review gate.
 
 The tool does not scaffold application business code, package managers, CI, or git repositories.
 
@@ -43,6 +43,8 @@ After a successful full init (no skips), the target directory contains at least:
 | `docs/adr/.gitkeep` | file |
 | `.agents/skills/feature-dev/SKILL.md` | file |
 | `.agents/skills/feature-dev/agents/openai.yaml` | file |
+| `.agents/skills/git-commit/SKILL.md` | file |
+| `.agents/skills/git-commit/agents/openai.yaml` | file |
 | `.claude/skills` | symlink → `../.agents/skills` |
 | `.claude/settings.json` | file |
 | `.codex/hooks.json` | file |
@@ -64,9 +66,10 @@ Generated `AGENTS.md` requires:
 
 - use `$feature-dev` before implementing new features;
 - record PRD, ADR, and spec updates under `docs/` before feature code;
-- review docs against the working tree before commit.
+- review docs against the working tree before commit;
+- use `$git-commit` for conventional commits from the diff.
 
-The installed `feature-dev` skill and `spec_doc_review` hook implement those rules for agent runtimes that load project skills/hooks.
+The installed `feature-dev` skill, `git-commit` skill, and `spec_doc_review` hook implement those rules for agent runtimes that load project skills/hooks.
 
 ## System-wide constraints
 

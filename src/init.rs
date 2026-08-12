@@ -333,6 +333,21 @@ mod tests {
                 .contains("质问")
         );
 
+        let git_commit = dir
+            .path()
+            .join(".agents/skills/git-commit/SKILL.md");
+        assert!(git_commit.is_file());
+        assert!(
+            fs::read_to_string(&git_commit)
+                .unwrap()
+                .contains("Conventional Commits")
+        );
+        assert!(
+            dir.path()
+                .join(".agents/skills/git-commit/agents/openai.yaml")
+                .is_file()
+        );
+
         let claude = dir.path().join("CLAUDE.md");
         assert!(claude.is_symlink());
         assert_eq!(fs::read_link(&claude).unwrap(), Path::new("AGENTS.md"));

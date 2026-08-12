@@ -56,6 +56,18 @@ pub fn harness_plan() -> Vec<PlanEntry> {
                 "../templates/.agents/skills/feature-dev/agents/openai.yaml"
             )),
         },
+        PlanEntry::File {
+            rel: ".agents/skills/git-commit/SKILL.md",
+            kind: FileKind::Static(include_str!(
+                "../templates/.agents/skills/git-commit/SKILL.md"
+            )),
+        },
+        PlanEntry::File {
+            rel: ".agents/skills/git-commit/agents/openai.yaml",
+            kind: FileKind::Static(include_str!(
+                "../templates/.agents/skills/git-commit/agents/openai.yaml"
+            )),
+        },
         PlanEntry::Symlink {
             rel: ".claude/skills",
             target: "../.agents/skills",
@@ -98,6 +110,8 @@ mod tests {
             "docs/adr/.gitkeep",
             ".agents/skills/feature-dev/SKILL.md",
             ".agents/skills/feature-dev/agents/openai.yaml",
+            ".agents/skills/git-commit/SKILL.md",
+            ".agents/skills/git-commit/agents/openai.yaml",
             ".claude/skills",
             ".claude/settings.json",
             ".codex/hooks.json",

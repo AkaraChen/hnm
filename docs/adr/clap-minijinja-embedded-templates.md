@@ -6,7 +6,7 @@ Accepted。
 
 ## 背景与驱动因素
 
-`hnm` 需要稳定、可重复地把 harness 文件集写入目标目录。模板中仅有少量变量（项目名、技术栈命令块），但 `feature-dev` skill 与 commit hook 是大段静态正文，必须与工具版本一起分发，不能依赖用户仓库里是否已有副本。
+`hnm` 需要稳定、可重复地把 harness 文件集写入目标目录。模板中仅有少量变量（项目名、技术栈命令块），但 skills（`feature-dev`、`git-commit`）与 commit hook 是大段静态正文，必须与工具版本一起分发，不能依赖用户仓库里是否已有副本。
 
 ## 决策
 

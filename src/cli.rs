@@ -9,7 +9,7 @@ use crate::stack::Stack;
     name = "hnm",
     version,
     about = "Install the agent documentation harness into a project",
-    long_about = "hnm writes AGENTS.md, docs/{prd,adr,spec}, the feature-dev skill, and commit-time doc review hooks so AI agents follow a consistent documentation harness."
+    long_about = "hnm writes AGENTS.md, docs/{prd,adr,spec}, feature-dev and git-commit skills, and commit-time doc review hooks so AI agents follow a consistent documentation harness."
 )]
 pub struct Cli {
     #[command(subcommand)]

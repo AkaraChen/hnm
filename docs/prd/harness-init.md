@@ -6,7 +6,7 @@ Accepted，首版实现中。
 
 ## 问题与背景
 
-Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/adr`、`docs/spec.md`）、`AGENTS.md` 工作流、`feature-dev` 质问 skill、以及提交前文档对照门禁。手工复制容易漏文件、漂移和命名不一致。`hnm` 要把这套 harness 一键落到任意目标项目。
+Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/adr`、`docs/spec.md`）、`AGENTS.md` 工作流、`feature-dev` 质问 skill、`git-commit` conventional commit skill、以及提交前文档对照门禁。手工复制容易漏文件、漂移和命名不一致。`hnm` 要把这套 harness 一键落到任意目标项目。
 
 ## 目标用户与用户故事
 
@@ -51,6 +51,8 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 | `docs/adr/.gitkeep` | 静态 |
 | `.agents/skills/feature-dev/SKILL.md` | 静态 |
 | `.agents/skills/feature-dev/agents/openai.yaml` | 静态 |
+| `.agents/skills/git-commit/SKILL.md` | 静态 |
+| `.agents/skills/git-commit/agents/openai.yaml` | 静态 |
 | `.claude/skills` | 符号链接 → `../.agents/skills` |
 | `.claude/settings.json` | 静态 |
 | `.codex/hooks.json` | 静态 |
@@ -79,4 +81,4 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 - 子命令为 `init`；首版只有这一主命令（另可有默认 help）。
 - 模板引擎选用 Rust 生态中 Jinja 兼容且活跃的 minijinja。
 - CLI 框架为 clap derive。
-- feature-dev skill 与 hook 脚本作为静态资源一并打包，不依赖网络。
+- feature-dev skill、git-commit skill 与 hook 脚本作为静态资源一并打包，不依赖网络。

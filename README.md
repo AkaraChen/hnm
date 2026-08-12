@@ -5,6 +5,7 @@ Install a complete **agent documentation harness** into any project:
 - `docs/prd/`, `docs/adr/`, `docs/spec.md`
 - `AGENTS.md` + `CLAUDE.md` symlink
 - `$feature-dev` skill (one-question 质问 before implementation)
+- `$git-commit` skill (conventional commits from the diff)
 - Claude/Codex skill wiring and pre-commit documentation review gate
 
 ## Install
@@ -49,6 +50,7 @@ hnm init --force
 | `docs/spec.md` | Bootstrap specification |
 | `docs/prd/`, `docs/adr/` | Empty dirs with `.gitkeep` |
 | `.agents/skills/feature-dev/` | Full 质问 skill |
+| `.agents/skills/git-commit/` | Conventional commit skill |
 | `.claude/skills` | → `../.agents/skills` |
 | `.claude/settings.json` | Commit doc-review hook |
 | `.codex/hooks.json` + `spec_doc_review.py` | Codex commit gate |
