@@ -2,7 +2,7 @@
 
 ## 状态
 
-对照完成。Go 实现与 Rust `588caae` 在产品表面上对齐。
+对照完成后 Rust crate 已删除。Go 是唯一实现。
 
 ## 对照范围
 
@@ -29,7 +29,7 @@
 - CLI 框架：Rust 用 clap，Go 用 cobra。命令、短选项、默认 stack=`generic` 相同；help 排版不同。
 - 契约路径：`CLAUDE.md` 的 path/target 来自本仓库 `schema/harness.json`，经 ctxl schema 解析。`.claude/skills` 仍由 hnm 按字面 target 写入，因为 ctxl 会把相对 target 接到项目根上。
 - `AGENTS.md` 与 `docs/spec.md` 由 hnm 整文件替换写出，不走 ctxl `WriteSingular`，避免 YAML frontmatter。
-- Rust crate 保留，默认安装说明改为 `go install`，cargo 仍可用于对照。
+- Rust crate 已删除；安装与开发说明只保留 Go。
 
 ## 未发现的失败项
 

@@ -22,7 +22,7 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 
 - 提供 `hnm init [PATH]` CLI，默认目标为当前目录。
 - 一次生成 harness 的全部约定文件与目录（见范围）。
-- 用 clap 解析参数；用嵌入式模板引擎渲染可参数化文件。
+- 用 cobra 解析参数；用嵌入式模板渲染可参数化文件。
 - 创建必要的符号链接（`CLAUDE.md`、`.claude/skills`）。
 
 ## 非目标
@@ -73,12 +73,12 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 - `--stack rust|node|bun|go|python|generic` 影响 `AGENTS.md` 的 Commands 区。
 - `--dry-run` 不创建任何文件。
 - 无 `--force` 时不覆盖已有非链接文件内容。
-- `cargo test` 与 `cargo build` 通过。
+- `go test ./...` 与 `go build ./cmd/hnm` 通过。
 
 ## 已解决的产品决策
 
 - 产品名是 `hnm`：把标准 agent 文档 harness 自动落到项目中的工具。
 - 子命令为 `init`；首版只有这一主命令（另可有默认 help）。
-- 模板引擎选用 Rust 生态中 Jinja 兼容且活跃的 minijinja。
-- CLI 框架为 clap derive。
+- 模板用嵌入资源加占位符替换。
+- CLI 框架为 cobra。
 - feature-dev skill、git-commit skill 与 hook 脚本作为静态资源一并打包，不依赖网络。

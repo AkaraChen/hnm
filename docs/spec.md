@@ -27,7 +27,7 @@ The tool does not scaffold application business code, package managers, CI, or g
   - `--stack <STACK>` selects the Commands section preset; default `generic`.
   - `--force` overwrites existing regular files and replaces incorrect symlinks.
   - `--dry-run` prints the plan without writing.
-- Unknown subcommands or invalid flags exit non-zero with clap’s error output.
+- Unknown subcommands or invalid flags exit non-zero with cobra error output.
 - On success, stdout includes a human-readable summary of created, skipped, and linked paths.
 
 ### Generated harness layout
@@ -52,7 +52,7 @@ After a successful full init (no skips), the target directory contains at least:
 
 ### Generation rules
 
-- Parameterized files are rendered with minijinja; static assets are written byte-identical to the embedded resources.
+- Parameterized files are rendered by replacing {{ project_name }}, {{ commands }}, and {{ stack }}; static assets are written byte-identical to the embedded resources.
 - Without `--force`, existing regular files are not overwritten; those paths are reported as skipped.
 - With `--force`, existing regular files at plan paths are replaced with generated content.
 - Symlink targets are relative as listed above.
@@ -73,14 +73,15 @@ The installed `feature-dev` skill, `git-commit` skill, and `spec_doc_review` hoo
 
 ## System-wide constraints
 
-- Language: Rust, Cargo, edition `2024`.
-- CLI: clap derive.
-- Templates: minijinja; resources embedded at compile time from `templates/`.
-- Domain errors: `thiserror`; process edge: `anyhow`.
-- Large modules are not allowed; split by responsibility (`cli`, `error`, `stack`, `plan`, `render`, `init`).
+- Language: Go.
+- CLI: cobra.
+- Templates and static assets are embedded at compile time from `templates/`.
+- Contract symlink path/target for `CLAUDE.md` is declared in `schema/harness.json` and read through ctxl schema.
+- Large packages are not allowed; split by responsibility (`cmd/hnm`, `internal/stack`, `internal/plan`, `internal/render`, `internal/init`).
 - This repository dogfoods the same harness layout for developing `hnm` itself.
 
 ## Current implementation status
 
 - Product scope and init contract are specified.
-- Implementation delivers `hnm init` with clap, minijinja, embedded templates, skip/force/dry-run, and automated tests.
+- Implementation delivers `hnm init` with cobra, embedded templates, skip/force/dry-run, and automated tests.
+- The former Rust crate has been removed; Go is the only implementation.
