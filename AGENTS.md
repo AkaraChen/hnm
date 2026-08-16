@@ -28,21 +28,18 @@ Before any commit, review staged, unstaged, and untracked changes against `docs/
 
 # Commands
 
-Package manager and build tooling are Cargo (Rust edition 2024).
+Tooling is the Go toolchain.
 
-- `cargo build` — compile the package
-- `cargo test` — run unit and integration tests
-- `cargo run -- init --help` — CLI help for harness install
-- `cargo run -- init <path> --stack rust` — install harness into a path
-- `cargo clippy` — lints
-- `cargo fmt` — rustfmt
+- `go test ./...` — run tests
+- `go build ./...` — compile packages
+- `go run ./cmd/hnm init --help` — CLI help
+- `gofmt -w .` — format
 
 # Code style
 
 - Prefer small modules with clear ownership boundaries over large catch-all files.
-- Domain types and invariants belong in library modules (`init`, `plan`, `render`, `stack`), not only in `main`.
-- Errors use `thiserror` in reusable code; `anyhow` only at the process edge.
-- Harness layout lives in `plan::harness_plan` and embedded `templates/`; keep them in sync with `docs/spec.md`.
+- Domain types and invariants belong in library packages (`internal/init`, `internal/plan`, `internal/render`, `internal/stack`), not only in `cmd/hnm`.
+- Harness layout lives in `plan.Harness` and embedded `templates/`; keep them in sync with `docs/spec.md`.
 - Tests protect init contracts (full layout, dry-run, skip, force), not template trivia.
 
 # Note
