@@ -11,8 +11,20 @@ Install a complete **agent documentation harness** into any project:
 ## Install
 
 ```bash
+go install github.com/AkaraChen/hnm/cmd/hnm@latest
+```
+
+The Rust crate remains in this repository for comparison until the Go binary is the default:
+
+```bash
 cargo install --path .
 ```
+
+```bash
+go install github.com/AkaraChen/hnm/cmd/hnm@latest
+```
+
+Rust remains the comparison binary until the Go port is the default.
 
 ## Usage
 

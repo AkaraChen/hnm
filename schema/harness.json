@@ -1,0 +1,44 @@
+{
+  "name": "harness",
+  "description": "Agent documentation contract: root markdown, CLAUDE.md symlink, spec, and empty PRD/ADR folders.",
+  "entities": [
+    {
+      "name": "agents",
+      "kind": "singular",
+      "format": "markdown",
+      "write": "replace",
+      "path": "AGENTS.md",
+      "location": "root"
+    },
+    {
+      "name": "claude",
+      "kind": "singular",
+      "format": "symlink",
+      "path": "CLAUDE.md",
+      "target": "AGENTS.md",
+      "location": "root"
+    },
+    {
+      "name": "spec",
+      "kind": "singular",
+      "format": "markdown",
+      "write": "replace",
+      "path": "docs/spec.md",
+      "location": "root"
+    },
+    {
+      "name": "prd",
+      "kind": "plural",
+      "format": "markdown",
+      "path": "docs/prd",
+      "location": "root"
+    },
+    {
+      "name": "adr",
+      "kind": "plural",
+      "format": "markdown",
+      "path": "docs/adr",
+      "location": "root"
+    }
+  ]
+}
