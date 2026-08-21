@@ -3,7 +3,7 @@ module github.com/AkaraChen/hnm
 go 1.24
 
 require (
-	github.com/AkaraChen/ctxl v0.0.0-20260816140526-05607758b28a
+	github.com/AkaraChen/ctxl v0.0.0-20260821105510-362416379bcf
 	github.com/spf13/cobra v1.10.2
 )
 
