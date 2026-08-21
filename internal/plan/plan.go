@@ -3,7 +3,7 @@ package plan
 import (
 	"fmt"
 
-	"github.com/AkaraChen/ctxl/schema"
+	"github.com/AkaraChen/ctxl/core/schema"
 	hnm "github.com/AkaraChen/hnm"
 )
 
