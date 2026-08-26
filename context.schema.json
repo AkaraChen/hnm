@@ -1,0 +1,70 @@
+{
+  "$schema": "https://raw.githubusercontent.com/AkaraChen/ctxl/main/core/schema/loader/ctxl.schema.json",
+  "name": "hnm",
+  "description": "Agent documentation harness: root AGENTS.md, spec, PRD/ADR collections, and workflow skills.",
+  "generation": {
+    "mode": "existing-module",
+    "output": "cmd/hnm",
+    "ctxl_version": "v0.0.0-20260826145703-327b47d26c25"
+  },
+  "skills": [
+    {
+      "type": "builtin",
+      "description": "Operate the hnm documentation harness through the hnm CLI instead of editing harness files by hand.",
+      "allowed-tools": "Bash(hnm:*)"
+    },
+    {"type": "custom", "directory": ".agents/skills/feature-dev"},
+    {"type": "custom", "directory": ".agents/skills/git-commit"}
+  ],
+  "entities": [
+    {
+      "name": "agents",
+      "kind": "singular",
+      "format": "markdown",
+      "path": "AGENTS.md",
+      "location": "root",
+      "scope": "project",
+      "description": "Root agent instructions: project workflows, commands, and code style."
+    },
+    {
+      "name": "claude",
+      "kind": "singular",
+      "format": "symlink",
+      "path": "CLAUDE.md",
+      "target": "AGENTS.md",
+      "location": "root",
+      "scope": "project",
+      "description": "Claude-facing alias; always a symlink to AGENTS.md so there is one source of truth."
+    },
+    {
+      "name": "spec",
+      "kind": "singular",
+      "format": "markdown",
+      "path": "docs/spec.md",
+      "location": "root",
+      "scope": "project",
+      "description": "Single source of truth for terminology, observable contracts, and system-wide invariants."
+    },
+    {
+      "name": "prd",
+      "kind": "plural",
+      "format": "markdown",
+      "path": "docs/prd",
+      "location": "root",
+      "scope": "project",
+      "description": "Product requirements, one kebab-case file per feature: problem, users, goals, flows, acceptance criteria."
+    },
+    {
+      "name": "adr",
+      "kind": "plural",
+      "format": "markdown",
+      "path": "docs/adr",
+      "location": "root",
+      "scope": "project",
+      "fields": [
+        {"name": "status", "type": "string", "description": "Proposed, Accepted, or Superseded"}
+      ],
+      "description": "Architecture decisions, one kebab-case file per decision: context, choice, alternatives, trade-offs."
+    }
+  ]
+}

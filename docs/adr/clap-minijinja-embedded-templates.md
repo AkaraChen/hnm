@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted。
+已被 ctxl-generated-cli.md 取代（Superseded）。
 
 ## 背景与驱动因素
 

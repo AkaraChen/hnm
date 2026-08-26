@@ -28,19 +28,17 @@ Before any commit, review staged, unstaged, and untracked changes against `docs/
 
 # Commands
 
-Tooling is the Go toolchain.
+Tooling is the Go toolchain plus just.
 
-- `go test ./...` — run tests
-- `go build ./...` — compile packages
-- `go run ./cmd/hnm init --help` — CLI help
+- `just generate` — regenerate `cmd/hnm` from `context.schema.json` (pinned ctxl commit)
+- `go build ./cmd/hnm` — compile the generated CLI
 - `gofmt -w .` — format
 
 # Code style
 
-- Prefer small modules with clear ownership boundaries over large catch-all files.
-- Domain types and invariants belong in library packages (`internal/init`, `internal/plan`, `internal/render`, `internal/stack`), not only in `cmd/hnm`.
-- Harness layout lives in `plan.Harness` and embedded `templates/`; keep them in sync with `docs/spec.md`.
-- Tests protect init contracts (full layout, dry-run, skip, force), not template trivia.
+- The harness contract lives in `context.schema.json`; `cmd/hnm` is generated-owned and must never be edited by hand.
+- Skill content under `.agents/skills/` doubles as this repository's development harness and the bundled payload; keep both roles in mind when editing.
+- Keep `context.schema.json` in sync with `docs/spec.md`.
 
 # Note
 
