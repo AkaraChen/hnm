@@ -42,6 +42,9 @@ func newCommand() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.ErrOrStderr(), "installed %s\n", file.Path)
 			}
+			if err := installSkills(force, cmd.ErrOrStderr()); err != nil {
+				return err
+			}
 			fmt.Fprintln(cmd.ErrOrStderr(), "Documentation review hooks configured (Python 3 and Git required). Review/trust hooks in Codex /hooks; restart Claude Code to load settings changes.")
 			return nil
 		}

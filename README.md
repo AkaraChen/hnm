@@ -29,7 +29,7 @@ hnm skills path feature-dev
 
 ## What gets written
 
-AGENTS.md and docs/spec.md with initial workflow content, CLAUDE.md (symlink), docs/prd/, docs/adr/. The `feature-dev` and `git-commit` skills are bundled inside the binary and served via `hnm skills get|path`.
+AGENTS.md and docs/spec.md with initial workflow content, CLAUDE.md (symlink), docs/prd/, docs/adr/. The `feature-dev` and `git-commit` skills are bundled inside the binary. Init installs their complete directories under `.agents/skills/` and links each into `.claude/skills/` for agent discovery. `hnm skills get|path` also remains available. Existing skill files are preserved; `--force` refreshes bundled files without deleting unrelated skills.
 
 `hnm init` also installs a Python documentation-review hook into `.codex/hooks/spec_doc_review.py` and merges its configuration into `.claude/settings.json` and `.codex/hooks.json`. Existing settings and hooks are preserved; repeated init does not duplicate entries. `--force` resets harness files and the script, while preserving unrelated hook/settings entries. Invalid settings are reported without overwriting them.
 

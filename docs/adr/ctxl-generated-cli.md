@@ -11,7 +11,7 @@ hnm maintained a bespoke Go implementation (cobra wiring, embedded templates, `-
 - Declare the whole harness in a root `context.schema.json` and generate `internal/generated` with ctxl in existing-module mode; the output is generated-owned and replaced in full.
 - Pin generation to one ctxl commit in both `generation.ctxl_version` and the `justfile`'s single `generate` recipe; never generate from `latest`.
 - Reuse `.agents/skills/` both as this repository's development harness and as the bundled skill payload (`hnm skills list|get|path`).
-- Drop template rendering (`--name`, `--stack` presets, `--dry-run`) and the `.claude/skills` directory symlink. KIT-928 restores hook/settings installation in a hand-written hnm entrypoint.
+- Drop template rendering (`--name`, `--stack` presets, `--dry-run`). KIT-928 restores skill installation (with per-skill Claude links) and hook/settings installation in a hand-written hnm entrypoint.
 
 ## Alternatives considered
 
@@ -27,9 +27,11 @@ Rejected: `go install github.com/AkaraChen/hnm/cmd/hnm@latest` must keep working
 
 - `hnm init` creates the five declared harness paths, seeding AGENTS.md and spec from schema bodies.
 - Fieldless singular Markdown is plain text; entities with declared metadata retain YAML frontmatter.
-- hnm installs the documentation-review hook for Claude and Codex; agents load bundled skills via `hnm skills`.
+- hnm installs the documentation-review hook for Claude and Codex; init installs bundled workflow skills into agent discovery directories; `hnm skills` remains available.
 - CLI fixes and new entity behavior arrive by bumping the pinned ctxl commit and regenerating.
 
 ## hnm extension boundary (KIT-928)
 
 Generate an importable `internal/generated` package exposing `New()`, then compose it from the user-owned `cmd/hnm` entrypoint. Wrap only the generated init command; use its existing store initialization and command tree. Keep the legacy Python script embedded in hnm and merge JSON settings using Go's standard library. Do not put agent-specific hooks into ctxl or patch generated source. This keeps regeneration reproducible and hook policy local. Retain skip/force script ownership while merging settings to avoid erasing user configuration. Tests exercise the composed command and invoke the script with real hook payloads.
+
+Reuse the generated `skills path` command to materialize the complete bundle, then install its files from hnm. Per-skill Claude links support an existing real `.claude/skills` directory without replacing unrelated skills; legacy whole-directory aliases also work.

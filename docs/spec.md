@@ -57,3 +57,5 @@ The bundled `feature-dev` skill requires product-then-technical 质问 with PRD/
 - The harness contract is declared in `context.schema.json`.
 - `internal/generated` is generated in ctxl existing-module package mode; `just generate` reproduces it.
 - The former templates, stack presets, and plan/render/init packages remain removed. Hook installation is an hnm-owned extension around the generated init.
+
+Project init installs the complete bundled `feature-dev` and `git-commit` directories into `.agents/skills/` and creates per-skill links under `.claude/skills/`. Existing files/links are preserved by default; force refreshes bundled files and replaces conflicting links or files, but never deletes nonempty user directories. Other skills remain untouched. Existing legacy `.claude/skills -> ../.agents/skills` links remain supported. Skill content is obtained from the generated CLI package, not duplicated in a separate embed.

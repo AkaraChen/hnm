@@ -194,3 +194,67 @@ func TestInstalledReviewHook(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestInitInstallsDiscoverableSkills(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(map[bool]string{false: "existing-claude-directory", true: "legacy-alias"}[legacy], func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			if err := os.MkdirAll(".agents/skills/custom", 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(".agents/skills/custom/SKILL.md", []byte("user skill"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(".claude", 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if legacy {
+				if err := os.Symlink("../.agents/skills", ".claude/skills"); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.MkdirAll(".claude/skills", 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := runCLI("init"); err != nil {
+				t.Fatalf("%s: %v", out, err)
+			}
+			for _, name := range []string{"feature-dev", "git-commit"} {
+				expected, err := runCLI("skills", "get", name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, base := range []string{".agents/skills", ".claude/skills"} {
+					if got := string(readFile(t, filepath.Join(base, name, "SKILL.md"))); got != expected {
+						t.Fatalf("%s/%s differs from bundle", base, name)
+					}
+					if len(readFile(t, filepath.Join(base, name, "agents/openai.yaml"))) == 0 {
+						t.Fatal("missing supporting file")
+					}
+				}
+			}
+			path := ".agents/skills/feature-dev/SKILL.md"
+			if err := os.WriteFile(path, []byte("customized"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runCLI("init"); err != nil {
+				t.Fatal(err)
+			}
+			if string(readFile(t, path)) != "customized" {
+				t.Fatal("overwrote custom skill")
+			}
+			if _, err := runCLI("init", "--force"); err != nil {
+				t.Fatal(err)
+			}
+			expected, err := runCLI("skills", "get", "feature-dev")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(readFile(t, path)) != expected {
+				t.Fatal("force did not refresh skill")
+			}
+			if string(readFile(t, ".agents/skills/custom/SKILL.md")) != "user skill" {
+				t.Fatal("changed unrelated skill")
+			}
+		})
+	}
+}
