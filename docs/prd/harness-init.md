@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted，首版实现中。
+历史首版契约。CLI 迁移后的契约见 `../adr/ctxl-generated-cli.md`；当前 hook 安装与默认文档行为见 `automatic-hooks.md` 和 `../spec.md`。
 
 ## 问题与背景
 

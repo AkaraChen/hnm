@@ -30,13 +30,13 @@ Before any commit, review staged, unstaged, and untracked changes against `docs/
 
 Tooling is the Go toolchain plus just.
 
-- `just generate` — regenerate `cmd/hnm` from `context.schema.json` (pinned ctxl commit)
-- `go build ./cmd/hnm` — compile the generated CLI
+- `just generate` — regenerate `internal/generated` from `context.schema.json` (pinned ctxl commit)
+- `go build ./cmd/hnm` — compile the composed CLI
 - `gofmt -w .` — format
 
 # Code style
 
-- The harness contract lives in `context.schema.json`; `cmd/hnm` is generated-owned and must never be edited by hand.
+- The harness contract lives in `context.schema.json`; `internal/generated` is generated-owned and must never be edited by hand.
 - Skill content under `.agents/skills/` doubles as this repository's development harness and the bundled payload; keep both roles in mind when editing.
 - Keep `context.schema.json` in sync with `docs/spec.md`.
 
