@@ -2,60 +2,85 @@
 
 ## Product scope
 
-`hnm` is a CLI that installs and operates an agent documentation harness in a target project directory. The harness is a standard three-layer layout: docs (`docs/prd/`, `docs/adr/`, `docs/spec.md`), root `AGENTS.md` workflow rules with a `CLAUDE.md` symlink, and bundled agent skills (`feature-dev` 质问 and `git-commit`) served from the binary.
+`hnm` is a CLI that installs a complete agent documentation harness into a target project directory. The harness is a standard three-layer layout: docs (`docs/prd/`, `docs/adr/`, `docs/spec.md`), root `AGENTS.md` workflow rules, installed agent skills (`feature-dev` 质问 and `git-commit`), Claude/Codex skill wiring, and a pre-commit documentation review gate.
 
 The tool does not scaffold application business code, package managers, CI, or git repositories.
 
 ## Terminology
 
-- **Harness**: the fixed set of documentation files and directories declared by `context.schema.json`.
-- **Feature 质问**: the mandatory product-then-technical clarification loop defined by the bundled `$feature-dev` skill.
+- **Harness**: the fixed set of agent workflow files and directories that `hnm init` writes.
+- **Feature 质问**: the mandatory product-then-technical clarification loop defined by the installed `$feature-dev` skill.
 - **PRD**: a product requirements document under `docs/prd/`.
 - **ADR**: an architecture decision record under `docs/adr/`.
 - **Spec**: `docs/spec.md` — shared terminology, observable contracts, and system-wide invariants for the *target* project after init (and for this repository as the tool itself).
-- **Generated CLI**: `internal/generated`, produced by ctxl from `context.schema.json`; generated-owned and replaced in full on regeneration.
+- **Stack**: a named command-block preset used only to fill the Commands section of generated `AGENTS.md` (`rust`, `node`, `bun`, `go`, `python`, `generic`).
+- **Init plan**: the ordered list of create/skip/link actions computed before writing.
 
 ## Observable contracts
 
 ### CLI
 
-- The binary name is `hnm`; it composes a ctxl-generated schema-specialized CLI operating on the current working directory.
-- `hnm init` creates every declared harness path, skipping paths that already exist; `--force` overwrites them.
-- Entity commands follow the schema: `agents` and `spec` (singular markdown: `write`, `show`), `claude` (symlink: `write`, `show`), `prd` and `adr` (plural markdown: `create`, `update`, `list`, `get`, `delete`, keyed by kebab-case `--id`).
-- `hnm skills list|get|path` serve the bundled `hnm`, `feature-dev`, and `git-commit` skills; `path` materializes a complete skill directory.
-- `--scope project|global` selects the working-directory harness or a home-directory store.
+- The binary name is `hnm`.
+- Primary command: `hnm init [PATH]`.
+  - `PATH` defaults to `.`.
+  - `--name <NAME>` sets the project name embedded in templates; when omitted, use the target directory’s final path component (or `project` if it is empty/`.`-only after canonicalize fallback to the user-facing path name).
+  - `--stack <STACK>` selects the Commands section preset; default `generic`.
+  - `--force` overwrites existing regular files and replaces incorrect symlinks.
+  - `--dry-run` prints the plan without writing.
+- Unknown subcommands or invalid flags exit non-zero with clap’s error output.
+- On success, stdout includes a human-readable summary of created, skipped, and linked paths.
 
 ### Generated harness layout
 
-After a successful `hnm init` (no skips), the target directory contains:
+After a successful full init (no skips), the target directory contains at least:
 
 | Path | Kind |
 |------|------|
-| `AGENTS.md` | file |
+| `AGENTS.md` | file (rendered) |
 | `CLAUDE.md` | symlink → `AGENTS.md` |
-| `docs/spec.md` | file |
-| `docs/prd/` | directory |
-| `docs/adr/` | directory |
+| `docs/spec.md` | file (rendered) |
+| `docs/prd/.gitkeep` | file |
+| `docs/adr/.gitkeep` | file |
+| `.agents/skills/feature-dev/SKILL.md` | file |
+| `.agents/skills/feature-dev/agents/openai.yaml` | file |
+| `.agents/skills/git-commit/SKILL.md` | file |
+| `.agents/skills/git-commit/agents/openai.yaml` | file |
+| `.claude/skills` | symlink → `../.agents/skills` |
+| `.claude/settings.json` | file |
+| `.codex/hooks.json` | file |
+| `.codex/hooks/spec_doc_review.py` | file |
 
-Fieldless singular Markdown is plain text, seeded by schema bodies during init; `agents write --body` and `spec write --body` replace it. Markdown collections retain YAML frontmatter.
+### Generation rules
 
-Project init also installs `.codex/hooks/spec_doc_review.py` and merges a PreToolUse Bash hook into `.claude/settings.json` and `.codex/hooks.json`. Existing unrelated settings/hooks survive, even with force. Existing scripts are skipped unless force is selected. Malformed settings fail without replacing them. Init is not a cross-file transaction. The first direct git commit attempt per session and HEAD is denied with a documentation-review reminder; retry is allowed. Hooks require Python 3, Git, and runtime trust; hnm does not change trust or global runtime configuration.
+- Parameterized files are rendered with minijinja; static assets are written byte-identical to the embedded resources.
+- Without `--force`, existing regular files are not overwritten; those paths are reported as skipped.
+- With `--force`, existing regular files at plan paths are replaced with generated content.
+- Symlink targets are relative as listed above.
+- Missing parent directories are created as needed.
+- If `PATH` does not exist, init creates it as a directory when possible.
+- Dry-run performs no filesystem mutations.
 
-### Installed workflow rules
+### Installed workflow rules (target `AGENTS.md`)
 
-The bundled `feature-dev` skill requires product-then-technical 质问 with PRD/ADR/spec output before feature code; the bundled `git-commit` skill produces conventional commits from the diff. Agent runtimes load them via `hnm skills`.
+Generated `AGENTS.md` requires:
+
+- use `$feature-dev` before implementing new features;
+- record PRD, ADR, and spec updates under `docs/` before feature code;
+- review docs against the working tree before commit;
+- use `$git-commit` for conventional commits from the diff.
+
+The installed `feature-dev` skill, `git-commit` skill, and `spec_doc_review` hook implement those rules for agent runtimes that load project skills/hooks.
 
 ## System-wide constraints
 
-- Language: Go. Hand-written sources include the hnm entrypoint and hook installer, `context.schema.json`, bundled skills, and `justfile`.
-- `internal/generated` is generated by a pinned ctxl commit (see `justfile` and `generation.ctxl_version`); regeneration replaces it in full and must never be edited by hand.
-- The skill directories double as this repository's own development harness and as the bundled payload.
+- Language: Rust, Cargo, edition `2024`.
+- CLI: clap derive.
+- Templates: minijinja; resources embedded at compile time from `templates/`.
+- Domain errors: `thiserror`; process edge: `anyhow`.
+- Large modules are not allowed; split by responsibility (`cli`, `error`, `stack`, `plan`, `render`, `init`).
 - This repository dogfoods the same harness layout for developing `hnm` itself.
 
 ## Current implementation status
 
-- The harness contract is declared in `context.schema.json`.
-- `internal/generated` is generated in ctxl existing-module package mode; `just generate` reproduces it.
-- The former templates, stack presets, and plan/render/init packages remain removed. Hook installation is an hnm-owned extension around the generated init.
-
-Project init installs the complete bundled `feature-dev` and `git-commit` directories into `.agents/skills/` and creates per-skill links under `.claude/skills/`. Existing files/links are preserved by default; force refreshes bundled files and replaces conflicting links or files, but never deletes nonempty user directories. Other skills remain untouched. Existing legacy `.claude/skills -> ../.agents/skills` links remain supported. Skill content is obtained from the generated CLI package, not duplicated in a separate embed.
+- Product scope and init contract are specified.
+- Implementation delivers `hnm init` with clap, minijinja, embedded templates, skip/force/dry-run, and automated tests.

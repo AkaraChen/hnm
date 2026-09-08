@@ -18,7 +18,7 @@ Read the relevant docs before changing feature code. Existing decisions live in 
 
 - Every completed feature 质问 leaves a PRD, at least one ADR when a material technical choice exists, and an update to `docs/spec.md` for any stable observable rule.
 - `docs/spec.md` stays implementation-independent: shared terminology, externally observable contracts, and invariants. Put feature rationale in the PRD and decision rationale in ADRs.
-- Use concise kebab-case filenames derived from the feature or decision.
+- Use concise kebab-case filenames derived from the feature or decision (for example `docs/prd/cli-run.md`, `docs/adr/error-types.md`).
 - Prefer testable product statements in PRDs. Do not hide unresolved product questions inside implementation TODOs.
 - If code and docs disagree, surface the conflict during 质问 or before commit; do not silently pick one side.
 
@@ -28,23 +28,19 @@ Before any commit, review staged, unstaged, and untracked changes against `docs/
 
 # Commands
 
-Package manager and build tooling are Cargo (Rust edition 2024).
+Project: `{{ project_name }}`.
 
-- `cargo build` — compile the package
-- `cargo test` — run unit and integration tests
-- `cargo run -- init --help` — CLI help for harness install
-- `cargo run -- init <path> --stack rust` — install harness into a path
-- `cargo clippy` — lints
-- `cargo fmt` — rustfmt
+{{ commands }}
 
 # Code style
 
 - Prefer small modules with clear ownership boundaries over large catch-all files.
-- Domain types and invariants belong in library modules (`init`, `plan`, `render`, `stack`), not only in `main`.
-- Errors use `thiserror` in reusable code; `anyhow` only at the process edge.
-- Harness layout lives in `plan::harness_plan` and embedded `templates/`; keep them in sync with `docs/spec.md`.
-- Tests protect init contracts (full layout, dry-run, skip, force), not template trivia.
+- Domain types and invariants belong in library code when the project grows past a single entry file.
+- Errors should be typed where boundaries matter; avoid stringly-typed failure modes for contracts covered by the spec.
+- Tests protect invariants and acceptance criteria from PRDs/spec, not implementation trivia.
 
 # Note
 
 `CLAUDE.md` is a symlink to this file — edit `AGENTS.md`.
+
+This harness was installed by `hnm init`.
