@@ -82,9 +82,7 @@ pub fn harness_plan() -> Vec<PlanEntry> {
         },
         PlanEntry::File {
             rel: ".codex/hooks/spec_doc_review.py",
-            kind: FileKind::Static(include_str!(
-                "../templates/.codex/hooks/spec_doc_review.py"
-            )),
+            kind: FileKind::Static(include_str!("../templates/.codex/hooks/spec_doc_review.py")),
         },
     ]
 }

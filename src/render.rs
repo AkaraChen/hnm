@@ -1,4 +1,4 @@
-use minijinja::{context, Environment};
+use minijinja::{Environment, context};
 
 use crate::error::{HnmError, Result};
 use crate::stack::Stack;
@@ -12,12 +12,7 @@ pub struct TemplateContext<'a> {
 }
 
 pub fn render_agents(ctx: &TemplateContext<'_>) -> Result<String> {
-    render_named(
-        "AGENTS.md.j2",
-        AGENTS_TEMPLATE,
-        ctx.project_name,
-        ctx.stack,
-    )
+    render_named("AGENTS.md.j2", AGENTS_TEMPLATE, ctx.project_name, ctx.stack)
 }
 
 pub fn render_spec(ctx: &TemplateContext<'_>) -> Result<String> {
@@ -29,12 +24,7 @@ pub fn render_spec(ctx: &TemplateContext<'_>) -> Result<String> {
     )
 }
 
-fn render_named(
-    name: &str,
-    source: &str,
-    project_name: &str,
-    stack: Stack,
-) -> Result<String> {
+fn render_named(name: &str, source: &str, project_name: &str, stack: Stack) -> Result<String> {
     let mut env = Environment::new();
     env.add_template(name, source)?;
     let tmpl = env

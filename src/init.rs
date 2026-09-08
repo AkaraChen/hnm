@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::error::{HnmError, Result};
-use crate::plan::{harness_plan, FileKind, PlanEntry};
+use crate::plan::{FileKind, PlanEntry, harness_plan};
 use crate::render::{self, TemplateContext};
 use crate::stack::Stack;
 
@@ -73,7 +73,9 @@ pub fn resolve_project_name(explicit: Option<String>, target: &Path) -> String {
 }
 
 pub fn run_init(opts: &InitOptions) -> Result<InitReport> {
-    ensure_target_dir(&opts.target)?;
+    if !opts.dry_run || opts.target.exists() {
+        ensure_target_dir(&opts.target)?;
+    }
 
     let ctx = TemplateContext {
         project_name: &opts.project_name,
@@ -93,8 +95,7 @@ pub fn run_init(opts: &InitOptions) -> Result<InitReport> {
                 actions.push(report);
             }
             PlanEntry::Symlink { rel, target } => {
-                let report =
-                    write_symlink(&opts.target, rel, target, opts.force, opts.dry_run)?;
+                let report = write_symlink(&opts.target, rel, target, opts.force, opts.dry_run)?;
                 actions.push(report);
             }
         }
@@ -155,12 +156,12 @@ fn write_file(
 
     if exists {
         // Remove symlink or file so open/write is clean.
-        fs::remove_file(&path).or_else(|_| fs::remove_dir_all(&path)).map_err(
-            |source| HnmError::Remove {
+        fs::remove_file(&path)
+            .or_else(|_| fs::remove_dir_all(&path))
+            .map_err(|source| HnmError::Remove {
                 path: path.clone(),
                 source,
-            },
-        )?;
+            })?;
     }
 
     let mut file = fs::File::create(&path).map_err(|source| HnmError::WriteFile {
@@ -195,15 +196,13 @@ fn write_symlink(
     let meta = fs::symlink_metadata(&link_path);
 
     if let Ok(meta) = meta {
-        if meta.file_type().is_symlink() {
-            if let Ok(existing) = fs::read_link(&link_path) {
-                if existing == Path::new(target) {
-                    return Ok(ActionReport {
-                        rel: rel.to_string(),
-                        kind: ActionKind::SkipLinkOk,
-                    });
-                }
-            }
+        if meta.file_type().is_symlink()
+            && fs::read_link(&link_path).is_ok_and(|existing| existing == Path::new(target))
+        {
+            return Ok(ActionReport {
+                rel: rel.to_string(),
+                kind: ActionKind::SkipLinkOk,
+            });
         }
         if !force {
             return Ok(ActionReport {
@@ -323,19 +322,11 @@ mod tests {
         assert!(agents.contains("`sample`"));
         assert!(agents.contains("cargo test"));
 
-        let skill = dir
-            .path()
-            .join(".agents/skills/feature-dev/SKILL.md");
+        let skill = dir.path().join(".agents/skills/feature-dev/SKILL.md");
         assert!(skill.is_file());
-        assert!(
-            fs::read_to_string(&skill)
-                .unwrap()
-                .contains("质问")
-        );
+        assert!(fs::read_to_string(&skill).unwrap().contains("质问"));
 
-        let git_commit = dir
-            .path()
-            .join(".agents/skills/git-commit/SKILL.md");
+        let git_commit = dir.path().join(".agents/skills/git-commit/SKILL.md");
         assert!(git_commit.is_file());
         assert!(
             fs::read_to_string(&git_commit)
@@ -376,6 +367,20 @@ mod tests {
         };
         run_init(&opts).unwrap();
         assert!(!dir.path().join("AGENTS.md").exists());
+    }
+
+    #[test]
+    fn dry_run_does_not_create_missing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let opts = InitOptions {
+            target: dir.path().join("missing/nested"),
+            project_name: "x".into(),
+            stack: Stack::Generic,
+            force: false,
+            dry_run: true,
+        };
+        run_init(&opts).unwrap();
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[test]

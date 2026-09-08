@@ -11,7 +11,7 @@ use anyhow::Context;
 use clap::Parser;
 
 use cli::{Cli, Commands};
-use init::{resolve_project_name, run_init, InitOptions};
+use init::{InitOptions, resolve_project_name, run_init};
 
 fn main() -> ExitCode {
     if let Err(err) = try_main() {
@@ -36,7 +36,10 @@ fn try_main() -> anyhow::Result<()> {
             let report = run_init(&opts).context("init failed")?;
 
             if opts.dry_run {
-                println!("dry-run harness for `{project_name}` (stack: {})", opts.stack);
+                println!(
+                    "dry-run harness for `{project_name}` (stack: {})",
+                    opts.stack
+                );
             } else {
                 println!(
                     "installed harness for `{project_name}` (stack: {}) into {}",
