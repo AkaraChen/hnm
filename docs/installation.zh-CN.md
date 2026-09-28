@@ -39,7 +39,7 @@ irm https://github.com/AkaraChen/hnm/releases/latest/download/install.ps1 | iex
 ```sh
 curl -fSL https://github.com/AkaraChen/hnm/releases/latest/download/install.sh -o install.sh
 # 执行前审阅 install.sh。
-HNM_VERSION=v0.2.0 HNM_INSTALL_DIR="$HOME/.local/bin" sh install.sh
+HNM_VERSION=v0.2.1 HNM_INSTALL_DIR="$HOME/.local/bin" sh install.sh
 hnm --version
 ```
 
@@ -48,7 +48,7 @@ hnm --version
 PowerShell 示例：
 
 ```powershell
-$env:HNM_VERSION = 'v0.2.0'
+$env:HNM_VERSION = 'v0.2.1'
 $env:HNM_INSTALL_DIR = "$HOME\.local\bin"
 irm https://github.com/AkaraChen/hnm/releases/latest/download/install.ps1 | iex
 hnm --version

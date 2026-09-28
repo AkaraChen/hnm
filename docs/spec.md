@@ -55,9 +55,10 @@ After a successful init into an empty directory, the target directory contains a
 - Parameterized files are rendered with minijinja; static assets are written byte-identical to the embedded resources.
 - Init never deletes or wholesale-overwrites existing content. When a plan path is occupied it merges best-effort:
   - content already equal to the generated content (ignoring trailing whitespace) → `unchanged`;
-  - `AGENTS.md` → the generated content is placed in a managed block, appended once and refreshed in place on later runs (`update`);
+  - `AGENTS.md` → the generated content is placed in a managed block, appended once and refreshed in place on later runs (`update`); a newly created `AGENTS.md` consists of that block. An `AGENTS.md` without a block that equals the raw generated content is wrapped in a block; one without a block that already contains the harness workflow rules but differs (for example an edited file from hnm before 0.2.0) is `skip`;
+  - a Markdown file whose markers are not exactly one well-formed begin/end pair → `skip`;
   - `CLAUDE.md` as a regular file → a managed block containing `@AGENTS.md` is added unless a line `@AGENTS.md` already exists; if it is the same file as `AGENTS.md`, it is `unchanged`;
-  - `.claude/settings.json` and `.codex/hooks.json` → JSON objects are deep-merged, missing array items are appended, and existing scalar values win;
+  - `.claude/settings.json` and `.codex/hooks.json` → JSON objects are deep-merged, missing array items are appended, and existing scalar values win; a type mismatch where the harness needs an object or array (for example `"hooks": null`) → `skip`;
   - `.claude/skills` as a real directory → each harness skill is linked inside it as `.claude/skills/<skill>` → `../../.agents/skills/<skill>`;
   - anything else that differs (other files, invalid JSON, symlinks pointing elsewhere, wrong file types) → left untouched and reported as `skip`.
 - Re-running init on an already-initialized directory reports only `unchanged` / `skip-link` and writes nothing.
