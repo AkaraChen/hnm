@@ -24,7 +24,12 @@ jobs:
             target: x86_64-apple-darwin
           - runner: macos-14
             target: aarch64-apple-darwin
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
     env:
       MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
@@ -43,11 +48,23 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
       - run: cargo build --release --locked --target ${{ matrix.target }}
-      - run: sh scripts/package.sh ${{ matrix.target }}
+      - if: runner.os != 'Windows'
+        run: sh scripts/package.sh ${{ matrix.target }}
       - name: Installer regression and native smoke tests
+        if: runner.os != 'Windows'
         run: |
           sh -n install.sh scripts/package.sh
           python3 tests/install_test.py target/${{ matrix.target }}/release/hnm
+      - name: Windows packaging and installer tests
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          ./scripts/package.ps1
+          ./tests/install_windows_test.ps1
+      - name: PowerShell 7 installer tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/install_windows_test.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
@@ -73,7 +90,9 @@ jobs:
           set -euo pipefail
           test "$(find dist -name '*.tar.gz' | wc -l)" -eq 4
           (cd dist && sha256sum -c ./*.sha256)
-          cp install.sh dist/install.sh
+          test "$(find dist -name '*.zip' | wc -l)" -eq 1
+          cp install.sh install.ps1 dist/
+          (cd dist && sha256sum install.ps1 > install.ps1.sha256)
           (cd dist && sha256sum install.sh > install.sh.sha256)
           if gh release view "$TAG" >/dev/null 2>&1; then
             test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true || { echo 'Published releases are immutable; bump the version.'; exit 1; }
@@ -88,10 +107,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-22.04, ubuntu-22.04-arm, macos-15-intel, macos-14]
+        runner: [ubuntu-22.04, ubuntu-22.04-arm, macos-15-intel, macos-14, windows-2022]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Download and install public assets in a clean directory
+        if: runner.os != 'Windows'
         env:
           HNM_VERSION: ${{ github.ref_name }}
         run: |
@@ -104,3 +124,19 @@ jobs:
           test -L "$RUNNER_TEMP/smoke-project/CLAUDE.md"
           "$HNM_INSTALL_DIR/hnm" init "$RUNNER_TEMP/dry-project" --dry-run
           test ! -e "$RUNNER_TEMP/dry-project"
+      - name: Install public Windows release
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          HNM_VERSION: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:HNM_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'hnm-bin'
+          irm https://github.com/AkaraChen/hnm/releases/latest/download/install.ps1 | iex
+          hnm --version
+          if ($LASTEXITCODE) { throw 'Version smoke failed' }
+          hnm init "$env:RUNNER_TEMP/smoke-project" --stack rust
+          if ($LASTEXITCODE) { throw 'Init smoke failed' }
+          if (!(Get-Item "$env:RUNNER_TEMP/smoke-project/CLAUDE.md").LinkType) { throw 'Missing symlink' }
+          hnm init "$env:RUNNER_TEMP/dry-project" --dry-run
+          if ($LASTEXITCODE -or (Test-Path "$env:RUNNER_TEMP/dry-project")) { throw 'Dry run failed' }
