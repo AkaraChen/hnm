@@ -10,9 +10,11 @@ text outside the image. The English README retains the existing 质问 terminolo
 
 GitHub-native headings, code blocks, and a single-column layout handle light and
 dark themes. The cover has an opaque background and descriptive alt text; it scales
-to the content width. A single native GitHub workflow badge and a release link keep the header useful.
-Detailed
-installation and maintainer instructions live in linked guides.
+to the content width. The KIT-934 layout puts a compact title, one-line introduction, language switch,
+and copyable install → cd → init commands first in both READMEs. The cover and
+workflow details follow setup and usage; release links are plain text. English
+and Chinese installation guides cover environment requirements and configuration.
+This order supersedes KIT-932's cover-first layout.
 
 ## References reviewed
 
@@ -40,3 +42,8 @@ claim. The source artwork is intentionally not duplicated in the repository.
 
 The external release badge endpoint returned HTTP 403 during validation, so it
 was replaced with a plain release link. The workflow badge is served by GitHub.
+
+## KIT-934 verification
+
+See [README validation](readme-validation.md) for the bilingual command checks,
+release smoke test, viewport sizes, and light/dark first-screen measurements.

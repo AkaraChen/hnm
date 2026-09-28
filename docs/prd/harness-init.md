@@ -36,7 +36,7 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 
 1. 用户在目标仓库根或任意目录执行 `hnm init [PATH]`。
 2. CLI 解析 `--name`、`--stack`、`--force`、`--dry-run`。
-3. 未给 `--name` 时，使用目标目录名作为项目名。
+3. 未给 `--name` 时，使用传入目标路径的末段作为项目名；默认路径 `.` 或末段缺失时使用 `project`，不会解析当前目录名。
 4. 渲染并写入 harness 文件；创建符号链接；打印摘要。
 5. dry-run 只打印计划，不写盘。
 
