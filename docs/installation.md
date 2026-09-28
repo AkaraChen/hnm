@@ -41,7 +41,7 @@ To inspect the script, select a version, or customize the destination:
 ```sh
 curl -fSL https://github.com/AkaraChen/hnm/releases/latest/download/install.sh -o install.sh
 # Review install.sh before running it.
-HNM_VERSION=v0.1.3 HNM_INSTALL_DIR="$HOME/.local/bin" sh install.sh
+HNM_VERSION=v0.2.0 HNM_INSTALL_DIR="$HOME/.local/bin" sh install.sh
 hnm --version
 ```
 
@@ -50,7 +50,7 @@ hnm --version
 PowerShell example:
 
 ```powershell
-$env:HNM_VERSION = 'v0.1.3'
+$env:HNM_VERSION = 'v0.2.0'
 $env:HNM_INSTALL_DIR = "$HOME\.local\bin"
 irm https://github.com/AkaraChen/hnm/releases/latest/download/install.ps1 | iex
 hnm --version
@@ -84,9 +84,9 @@ After building, enter your own project root and run `hnm init`.
   follow the installer's instructions.
 - **Windows symlink creation fails:** enable Developer Mode or obtain symlink
   privileges, then rerun init.
-- **Changing name or stack has no effect:** existing files are skipped by default.
-  Inspect with `--dry-run`; review and back up local edits before choosing
-  `--force` to replace whole files.
+- **Changing name or stack has no effect:** rerunning refreshes the managed block in
+  `AGENTS.md`, but an existing `docs/spec.md` is never overwritten. Inspect with
+  `--dry-run`, then edit or remove that file yourself and rerun.
 - **Hooks do not run:** confirm your agent supports and loads project configuration.
   The review hook needs Python 3; the bundled Codex path is `/usr/bin/python3`,
   which you may need to adapt to your OS.

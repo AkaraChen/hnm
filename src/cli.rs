@@ -36,10 +36,6 @@ pub struct InitArgs {
     #[arg(long, short = 's', value_enum, default_value_t = Stack::Generic)]
     pub stack: Stack,
 
-    /// Overwrite existing files and replace incorrect symlinks
-    #[arg(long, short = 'f')]
-    pub force: bool,
-
     /// Print the plan without writing files
     #[arg(long)]
     pub dry_run: bool,

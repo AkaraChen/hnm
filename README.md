@@ -42,8 +42,9 @@ choose a destination, build from source, and troubleshoot.
 
 ## After init
 
-1. Read the printed `create`, `link`, and `skip` summary. Existing files are
-   skipped by default, so inspect skipped paths to ensure the workflow is complete.
+1. Read the printed summary. Existing files are merged rather than overwritten
+   (`update`); only paths that cannot be merged safely are reported as `skip`,
+   so inspect those to ensure the workflow is complete.
 2. Open `AGENTS.md` and `docs/spec.md`; set your project name, real commands, and
    shared rules. Plain `hnm init` uses the `generic` command preset and embeds
    the fallback name `project` for the default `.` path. Use `hnm init --name my-app
@@ -68,9 +69,6 @@ hnm init ./my-app --name my-app --stack rust --dry-run
 
 # Initialize a specific directory (created if missing)
 hnm init ./my-app --name my-app --stack rust
-
-# Explicitly replace existing harness paths
-hnm init ./my-app --name my-app --stack rust --force
 ```
 
 | Argument | Default | Effect |
@@ -79,18 +77,19 @@ hnm init ./my-app --name my-app --stack rust --force
 | `--name`, `-n` | Final path component, or `project` for `.` / `..` | Project name in templates |
 | `--stack`, `-s` | `generic` | Commands preset below |
 | `--dry-run` | Off | Print the plan without writing |
-| `--force`, `-f` | Off | Replace existing harness paths |
 
 Configuration is through CLI arguments; there is no hnm configuration file.
 Installer environment variables `HNM_VERSION` and `HNM_INSTALL_DIR` are described
 in the [installation guide](docs/installation.md#options).
 
-Without `--force`, existing paths are skipped and correct symlinks are kept.
-`--force` replaces files and incorrect symlinks; it can also remove a directory
-occupying a generated path. Review local changes before using it: it replaces
-whole files, including agent settings, rather than merging them. Failures exit
-nonzero and may leave files already written; fix the error and inspect the summary
-when rerunning. A successful exit can still include skipped files.
+Init never deletes or wholesale-replaces existing content; it merges best-effort:
+`AGENTS.md` gets an hnm-managed block (`<!-- hnm:begin -->` … `<!-- hnm:end -->`)
+that is refreshed on later runs, a regular `CLAUDE.md` gains an `@AGENTS.md` import,
+`.claude/settings.json` and `.codex/hooks.json` are deep-merged (your values win),
+and a real `.claude/skills` directory gets per-skill links. Other differing files,
+invalid JSON, and foreign symlinks are left untouched and reported as `skip`, with a
+closing note. Rerunning is safe. Failures exit nonzero and may leave files already
+written; fix the error and rerun. A successful exit can still include skipped paths.
 
 ### Stack presets
 

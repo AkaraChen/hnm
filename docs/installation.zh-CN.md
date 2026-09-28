@@ -39,7 +39,7 @@ irm https://github.com/AkaraChen/hnm/releases/latest/download/install.ps1 | iex
 ```sh
 curl -fSL https://github.com/AkaraChen/hnm/releases/latest/download/install.sh -o install.sh
 # 执行前审阅 install.sh。
-HNM_VERSION=v0.1.3 HNM_INSTALL_DIR="$HOME/.local/bin" sh install.sh
+HNM_VERSION=v0.2.0 HNM_INSTALL_DIR="$HOME/.local/bin" sh install.sh
 hnm --version
 ```
 
@@ -48,7 +48,7 @@ hnm --version
 PowerShell 示例：
 
 ```powershell
-$env:HNM_VERSION = 'v0.1.3'
+$env:HNM_VERSION = 'v0.2.0'
 $env:HNM_INSTALL_DIR = "$HOME\.local\bin"
 irm https://github.com/AkaraChen/hnm/releases/latest/download/install.ps1 | iex
 hnm --version
@@ -76,8 +76,8 @@ cargo install --path . --locked
 - **找不到 `hnm`：** 检查安装是否成功，确认安装目录在 PATH 中；Unix 可运行
   `export PATH="$HOME/.local/bin:$PATH"`，Windows 按安装器提示配置。
 - **Windows 符号链接创建失败：** 启用开发者模式或获得符号链接权限，再运行 init。
-- **修改名称或技术栈后文件未变化：** 已有文件默认跳过。先用 `--dry-run` 检查计划；
-  审阅并备份本地修改后，再决定是否加 `--force` 整体替换。
+- **修改名称或技术栈后文件未变化：** 重跑会刷新 `AGENTS.md` 中的管理区块，但已有的
+  `docs/spec.md` 不会被覆盖。先用 `--dry-run` 检查计划，再自行修改或删除该文件后重跑。
 - **hook 不运行：** 确认 agent 支持并加载项目配置；审阅 hook 需要 Python 3，
   内置 Codex 路径是 `/usr/bin/python3`，请按系统调整。
 

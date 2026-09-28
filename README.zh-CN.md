@@ -39,7 +39,7 @@ Windows 安装器设置当前会话 PATH，并打印持久配置方法。重新�
 
 ## init 之后
 
-1. 阅读输出的 `create`、`link` 和 `skip` 摘要。已有文件默认跳过，请检查被跳过的路径，确认工作流完整。
+1. 阅读输出摘要。已有文件会被合并而非覆盖（`update`）；只有无法安全合并的路径会标记为 `skip`，请检查这些路径，确认工作流完整。
 2. 打开 `AGENTS.md` 和 `docs/spec.md`，填写项目名、真实命令和共享规则。
    直接运行 `hnm init` 使用 `generic` 命令预设；默认路径 `.` 写入的项目名是回退值 `project`。
    首次运行时可用 `hnm init --name my-app --stack rust` 显式设置。
@@ -61,9 +61,6 @@ hnm init ./my-app --name my-app --stack rust --dry-run
 
 # 初始化指定目录（不存在时创建）
 hnm init ./my-app --name my-app --stack rust
-
-# 显式替换已有工作流路径
-hnm init ./my-app --name my-app --stack rust --force
 ```
 
 | 参数 | 默认值 | 作用 |
@@ -72,16 +69,16 @@ hnm init ./my-app --name my-app --stack rust --force
 | `--name`、`-n` | 路径末段；`.` / `..` 使用 `project` | 模板中的项目名 |
 | `--stack`、`-s` | `generic` | 下表中的命令预设 |
 | `--dry-run` | 关闭 | 打印计划，不写文件 |
-| `--force`、`-f` | 关闭 | 替换已有工作流路径 |
 
 通过 CLI 参数配置，无单独的 hnm 配置文件。安装器环境变量 `HNM_VERSION` 和
 `HNM_INSTALL_DIR` 见[安装指南](docs/installation.zh-CN.md#安装选项)。
 
-不加 `--force` 时，已有路径会跳过，正确的符号链接会保留。
-`--force` 替换文件和不正确的符号链接，也可能删除占用生成路径的目录。
-使用前请审阅本地修改：包括 agent 配置在内，文件会整体替换，不会合并。
-失败时退出码非零，但可能保留此前已写入的文件；修复错误后重新运行并检查摘要。
-即使退出成功，也可能有文件被跳过。
+init 不会删除或整体替换已有内容，而是尽力合并：`AGENTS.md` 写入 hnm 管理的区块
+（`<!-- hnm:begin -->` … `<!-- hnm:end -->`），之后重跑会原地刷新；普通文件 `CLAUDE.md`
+会加入 `@AGENTS.md` 导入；`.claude/settings.json` 与 `.codex/hooks.json` 深度合并（保留你的值）；
+真实的 `.claude/skills` 目录会在其中逐个链接 skill。其他内容不同的文件、无效 JSON、指向别处的符号链接
+保持不动并标记为 `skip`，结尾给出提示。可以放心重跑。
+失败时退出码非零，但可能保留此前已写入的文件；修复错误后重新运行即可。即使退出成功，也可能有路径被跳过。
 
 ### 技术栈预设
 

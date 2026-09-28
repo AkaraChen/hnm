@@ -29,13 +29,6 @@ pub enum HnmError {
         source: std::io::Error,
     },
 
-    #[error("failed to remove {path}: {source}")]
-    Remove {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-
     #[error("template error: {0}")]
     Template(#[from] minijinja::Error),
 
