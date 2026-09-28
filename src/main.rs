@@ -1,6 +1,7 @@
 mod cli;
 mod error;
 mod init;
+mod merge;
 mod plan;
 mod render;
 mod stack;
@@ -30,7 +31,6 @@ fn try_main() -> anyhow::Result<()> {
                 target: args.path,
                 project_name: project_name.clone(),
                 stack: args.stack,
-                force: args.force,
                 dry_run: args.dry_run,
             };
             let report = run_init(&opts).context("init failed")?;
@@ -49,6 +49,12 @@ fn try_main() -> anyhow::Result<()> {
             }
             for line in report.summary_lines() {
                 println!("  {line}");
+            }
+            let conflicts = report.conflicts();
+            if conflicts > 0 {
+                println!(
+                    "note: {conflicts} path(s) left untouched because existing content could not be merged; review them manually"
+                );
             }
         }
     }

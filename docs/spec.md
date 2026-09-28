@@ -14,7 +14,8 @@ The tool does not scaffold application business code, package managers, CI, or g
 - **ADR**: an architecture decision record under `docs/adr/`.
 - **Spec**: `docs/spec.md` — shared terminology, observable contracts, and system-wide invariants for the *target* project after init (and for this repository as the tool itself).
 - **Stack**: a named command-block preset used only to fill the Commands section of generated `AGENTS.md` (`rust`, `node`, `bun`, `go`, `python`, `generic`).
-- **Init plan**: the ordered list of create/skip/link actions computed before writing.
+- **Init plan**: the ordered list of create/update/unchanged/skip/link actions computed before writing.
+- **Managed block**: the region between `<!-- hnm:begin -->` and `<!-- hnm:end -->` that hnm owns inside a user's Markdown file.
 
 ## Observable contracts
 
@@ -25,14 +26,13 @@ The tool does not scaffold application business code, package managers, CI, or g
   - `PATH` defaults to `.`.
   - `--name <NAME>` sets the project name embedded in templates; when omitted, use the target directory’s final path component (or `project` if it is empty/`.`-only after canonicalize fallback to the user-facing path name).
   - `--stack <STACK>` selects the Commands section preset; default `generic`.
-  - `--force` overwrites existing regular files and replaces incorrect symlinks.
   - `--dry-run` prints the plan without writing.
 - Unknown subcommands or invalid flags exit non-zero with clap’s error output.
-- On success, stdout includes a human-readable summary of created, skipped, and linked paths.
+- On success, stdout includes a human-readable summary of created, updated, unchanged, skipped, and linked paths, followed by a note counting skipped paths when any exist. Skips do not change the exit code.
 
 ### Generated harness layout
 
-After a successful full init (no skips), the target directory contains at least:
+After a successful init into an empty directory, the target directory contains at least:
 
 | Path | Kind |
 |------|------|
@@ -53,8 +53,14 @@ After a successful full init (no skips), the target directory contains at least:
 ### Generation rules
 
 - Parameterized files are rendered with minijinja; static assets are written byte-identical to the embedded resources.
-- Without `--force`, existing regular files are not overwritten; those paths are reported as skipped.
-- With `--force`, existing regular files at plan paths are replaced with generated content.
+- Init never deletes or wholesale-overwrites existing content. When a plan path is occupied it merges best-effort:
+  - content already equal to the generated content (ignoring trailing whitespace) → `unchanged`;
+  - `AGENTS.md` → the generated content is placed in a managed block, appended once and refreshed in place on later runs (`update`);
+  - `CLAUDE.md` as a regular file → a managed block containing `@AGENTS.md` is added unless a line `@AGENTS.md` already exists; if it is the same file as `AGENTS.md`, it is `unchanged`;
+  - `.claude/settings.json` and `.codex/hooks.json` → JSON objects are deep-merged, missing array items are appended, and existing scalar values win;
+  - `.claude/skills` as a real directory → each harness skill is linked inside it as `.claude/skills/<skill>` → `../../.agents/skills/<skill>`;
+  - anything else that differs (other files, invalid JSON, symlinks pointing elsewhere, wrong file types) → left untouched and reported as `skip`.
+- Re-running init on an already-initialized directory reports only `unchanged` / `skip-link` and writes nothing.
 - Symlink targets are relative as listed above.
 - Missing parent directories are created as needed.
 - If `PATH` does not exist, init creates it as a directory when possible.
@@ -83,7 +89,7 @@ The installed `feature-dev` skill, `git-commit` skill, and `spec_doc_review` hoo
 ## Current implementation status
 
 - Product scope and init contract are specified.
-- Implementation delivers `hnm init` with clap, minijinja, embedded templates, skip/force/dry-run, and automated tests.
+- Implementation delivers `hnm init` with clap, minijinja, embedded templates, best-effort merge, dry-run, and automated tests.
 
 ## Binary distribution
 

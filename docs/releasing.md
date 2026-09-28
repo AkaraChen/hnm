@@ -3,7 +3,7 @@
 [← Back to README](../README.md)
 
 1. Update `Cargo.toml` and `Cargo.lock` to the next stable version; merge the PR.
-2. Push the matching tag, for example `git tag v0.1.3 && git push origin v0.1.3`.
+2. Push the matching tag, for example `git tag v0.2.0 && git push origin v0.2.0`.
 3. The Release workflow tests and packages all five native targets, uploads the
    archives, per-file SHA-256 checksums, and installers to a draft, then publishes
    it only after every build passes. A final matrix installs from the public

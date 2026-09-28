@@ -1,9 +1,9 @@
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::error::{HnmError, Result};
-use crate::plan::{FileKind, PlanEntry, harness_plan};
+use crate::merge::{self, Merged};
+use crate::plan::{FileKind, LinkFallback, PlanEntry, SKILLS, Update, harness_plan};
 use crate::render::{self, TemplateContext};
 use crate::stack::Stack;
 
@@ -12,17 +12,19 @@ pub struct InitOptions {
     pub target: PathBuf,
     pub project_name: String,
     pub stack: Stack,
-    pub force: bool,
     pub dry_run: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionKind {
     Create,
-    Overwrite,
-    SkipExists,
+    /// Generated content merged into an existing file.
+    Update,
+    /// Existing file already carries the generated content.
+    Unchanged,
+    /// Existing content could not be merged; left untouched.
+    Conflict,
     Link,
-    Relink,
     SkipLinkOk,
 }
 
@@ -44,15 +46,22 @@ impl InitReport {
             .map(|a| {
                 let label = match a.kind {
                     ActionKind::Create => "create",
-                    ActionKind::Overwrite => "overwrite",
-                    ActionKind::SkipExists => "skip",
+                    ActionKind::Update => "update",
+                    ActionKind::Unchanged => "unchanged",
+                    ActionKind::Conflict => "skip",
                     ActionKind::Link => "link",
-                    ActionKind::Relink => "relink",
                     ActionKind::SkipLinkOk => "skip-link",
                 };
                 format!("{label:10} {}", a.rel)
             })
             .collect()
+    }
+
+    pub fn conflicts(&self) -> usize {
+        self.actions
+            .iter()
+            .filter(|a| a.kind == ActionKind::Conflict)
+            .count()
     }
 }
 
@@ -85,18 +94,32 @@ pub fn run_init(opts: &InitOptions) -> Result<InitReport> {
     let mut actions = Vec::new();
     for entry in harness_plan() {
         match entry {
-            PlanEntry::File { rel, kind } => {
+            PlanEntry::File { rel, kind, update } => {
                 let content = match kind {
                     FileKind::AgentsTemplate => render::render_agents(&ctx)?,
                     FileKind::SpecTemplate => render::render_spec(&ctx)?,
                     FileKind::Static(body) => body.to_string(),
                 };
-                let report = write_file(&opts.target, rel, &content, opts.force, opts.dry_run)?;
-                actions.push(report);
+                actions.push(write_file(
+                    &opts.target,
+                    rel,
+                    &content,
+                    update,
+                    opts.dry_run,
+                )?);
             }
-            PlanEntry::Symlink { rel, target } => {
-                let report = write_symlink(&opts.target, rel, target, opts.force, opts.dry_run)?;
-                actions.push(report);
+            PlanEntry::Symlink {
+                rel,
+                target,
+                fallback,
+            } => {
+                actions.extend(write_symlink(
+                    &opts.target,
+                    rel,
+                    target,
+                    fallback,
+                    opts.dry_run,
+                )?);
             }
         }
     }
@@ -117,71 +140,75 @@ fn ensure_target_dir(target: &Path) -> Result<()> {
     })
 }
 
+fn report(rel: &str, kind: ActionKind) -> ActionReport {
+    ActionReport {
+        rel: rel.to_string(),
+        kind,
+    }
+}
+
 fn write_file(
     root: &Path,
     rel: &str,
     content: &str,
-    force: bool,
+    update: Update,
     dry_run: bool,
 ) -> Result<ActionReport> {
     let path = root.join(rel);
-    let exists = path.exists() || path.symlink_metadata().is_ok();
+    let content = with_trailing_newline(content);
 
-    if exists && !force {
-        return Ok(ActionReport {
-            rel: rel.to_string(),
-            kind: ActionKind::SkipExists,
-        });
+    if fs::symlink_metadata(&path).is_err() {
+        if !dry_run {
+            write_contents(&path, &content)?;
+        }
+        return Ok(report(rel, ActionKind::Create));
     }
 
-    let kind = if exists {
-        ActionKind::Overwrite
-    } else {
-        ActionKind::Create
+    // Unreadable paths (directories, non-UTF-8, dangling links) are conflicts.
+    let merged = match fs::read_to_string(&path) {
+        Ok(existing) if existing.trim_end() == content.trim_end() => Merged::Unchanged,
+        Ok(existing) => match update {
+            Update::Keep => Merged::Conflict,
+            Update::ManagedBlock => merge::upsert_block(&existing, &content),
+            Update::JsonMerge => merge::merge_json(&existing, &content),
+        },
+        Err(_) => Merged::Conflict,
     };
+    apply_merge(&path, rel, merged, dry_run)
+}
 
-    if dry_run {
-        return Ok(ActionReport {
-            rel: rel.to_string(),
-            kind,
-        });
+fn apply_merge(path: &Path, rel: &str, merged: Merged, dry_run: bool) -> Result<ActionReport> {
+    let kind = match merged {
+        Merged::Unchanged => ActionKind::Unchanged,
+        Merged::Conflict => ActionKind::Conflict,
+        Merged::Updated(next) => {
+            if !dry_run {
+                write_contents(path, &next)?;
+            }
+            ActionKind::Update
+        }
+    };
+    Ok(report(rel, kind))
+}
+
+fn with_trailing_newline(content: &str) -> String {
+    let mut out = content.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
     }
+    out
+}
 
+fn write_contents(path: &Path, content: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| HnmError::CreateDir {
             path: parent.to_path_buf(),
             source,
         })?;
     }
-
-    if exists {
-        // Remove symlink or file so open/write is clean.
-        fs::remove_file(&path)
-            .or_else(|_| fs::remove_dir_all(&path))
-            .map_err(|source| HnmError::Remove {
-                path: path.clone(),
-                source,
-            })?;
-    }
-
-    let mut file = fs::File::create(&path).map_err(|source| HnmError::WriteFile {
-        path: path.clone(),
+    fs::write(path, content).map_err(|source| HnmError::WriteFile {
+        path: path.to_path_buf(),
         source,
-    })?;
-    file.write_all(content.as_bytes())
-        .map_err(|source| HnmError::WriteFile {
-            path: path.clone(),
-            source,
-        })?;
-    // Ensure trailing newline for text assets that forgot one.
-    if !content.is_empty() && !content.ends_with('\n') {
-        file.write_all(b"\n")
-            .map_err(|source| HnmError::WriteFile { path, source })?;
-    }
-
-    Ok(ActionReport {
-        rel: rel.to_string(),
-        kind,
     })
 }
 
@@ -189,70 +216,68 @@ fn write_symlink(
     root: &Path,
     rel: &str,
     target: &str,
-    force: bool,
+    fallback: LinkFallback,
     dry_run: bool,
-) -> Result<ActionReport> {
+) -> Result<Vec<ActionReport>> {
     let link_path = root.join(rel);
-    let meta = fs::symlink_metadata(&link_path);
-
-    if let Ok(meta) = meta {
-        if meta.file_type().is_symlink()
-            && fs::read_link(&link_path).is_ok_and(|existing| existing == Path::new(target))
-        {
-            return Ok(ActionReport {
-                rel: rel.to_string(),
-                kind: ActionKind::SkipLinkOk,
-            });
+    let Ok(meta) = fs::symlink_metadata(&link_path) else {
+        if !dry_run {
+            if let Some(parent) = link_path.parent() {
+                fs::create_dir_all(parent).map_err(|source| HnmError::CreateDir {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
+            create_symlink(Path::new(target), &link_path)?;
         }
-        if !force {
-            return Ok(ActionReport {
-                rel: rel.to_string(),
-                kind: ActionKind::SkipExists,
-            });
-        }
-    }
-
-    let exists = link_path.exists() || fs::symlink_metadata(&link_path).is_ok();
-    let kind = if exists {
-        ActionKind::Relink
-    } else {
-        ActionKind::Link
+        return Ok(vec![report(rel, ActionKind::Link)]);
     };
 
-    if dry_run {
-        return Ok(ActionReport {
-            rel: rel.to_string(),
-            kind,
-        });
-    }
-
-    if let Some(parent) = link_path.parent() {
-        fs::create_dir_all(parent).map_err(|source| HnmError::CreateDir {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
-
-    if exists {
-        if link_path.is_dir() && !link_path.is_symlink() {
-            fs::remove_dir_all(&link_path).map_err(|source| HnmError::Remove {
-                path: link_path.clone(),
-                source,
-            })?;
+    if meta.file_type().is_symlink() {
+        let kind = if fs::read_link(&link_path).is_ok_and(|existing| existing == Path::new(target))
+        {
+            ActionKind::SkipLinkOk
         } else {
-            fs::remove_file(&link_path).map_err(|source| HnmError::Remove {
-                path: link_path.clone(),
-                source,
-            })?;
-        }
+            ActionKind::Conflict
+        };
+        return Ok(vec![report(rel, kind)]);
     }
 
-    create_symlink(Path::new(target), &link_path)?;
+    match fallback {
+        LinkFallback::ImportBlock if meta.is_file() => {
+            let resolved = link_path.parent().unwrap_or(root).join(target);
+            // A file that is the link target itself already has the content.
+            if same_file(&link_path, &resolved) {
+                return Ok(vec![report(rel, ActionKind::Unchanged)]);
+            }
+            let merged = match fs::read_to_string(&link_path) {
+                Ok(existing) => merge::ensure_import(&existing, target),
+                Err(_) => Merged::Conflict,
+            };
+            Ok(vec![apply_merge(&link_path, rel, merged, dry_run)?])
+        }
+        LinkFallback::LinkSkills if meta.is_dir() => {
+            let mut reports = Vec::new();
+            for skill in SKILLS {
+                reports.extend(write_symlink(
+                    root,
+                    &format!("{rel}/{skill}"),
+                    &format!("../{target}/{skill}"),
+                    LinkFallback::None,
+                    dry_run,
+                )?);
+            }
+            Ok(reports)
+        }
+        _ => Ok(vec![report(rel, ActionKind::Conflict)]),
+    }
+}
 
-    Ok(ActionReport {
-        rel: rel.to_string(),
-        kind,
-    })
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
 }
 
 #[cfg(unix)]
@@ -307,7 +332,6 @@ mod tests {
             target: dir.path().to_path_buf(),
             project_name: "sample".into(),
             stack: Stack::Rust,
-            force: false,
             dry_run: false,
         };
         let report = run_init(&opts).unwrap();
@@ -362,7 +386,6 @@ mod tests {
             target: dir.path().to_path_buf(),
             project_name: "x".into(),
             stack: Stack::Generic,
-            force: false,
             dry_run: true,
         };
         run_init(&opts).unwrap();
@@ -376,52 +399,134 @@ mod tests {
             target: dir.path().join("missing/nested"),
             project_name: "x".into(),
             stack: Stack::Generic,
-            force: false,
             dry_run: true,
         };
         run_init(&opts).unwrap();
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
-    #[test]
-    fn skip_without_force() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("AGENTS.md");
-        fs::write(&path, "keep-me\n").unwrap();
-
-        let opts = InitOptions {
-            target: dir.path().to_path_buf(),
-            project_name: "x".into(),
-            stack: Stack::Generic,
-            force: false,
+    fn opts(dir: &Path) -> InitOptions {
+        InitOptions {
+            target: dir.to_path_buf(),
+            project_name: "merged".into(),
+            stack: Stack::Rust,
             dry_run: false,
-        };
-        let report = run_init(&opts).unwrap();
-        let agents = report
-            .actions
-            .iter()
-            .find(|a| a.rel == "AGENTS.md")
-            .unwrap();
-        assert_eq!(agents.kind, ActionKind::SkipExists);
-        assert_eq!(fs::read_to_string(path).unwrap(), "keep-me\n");
+        }
+    }
+
+    fn kind_of(report: &InitReport, rel: &str) -> ActionKind {
+        report.actions.iter().find(|a| a.rel == rel).unwrap().kind
     }
 
     #[test]
-    fn force_overwrites() {
+    fn existing_agents_gets_managed_block() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("AGENTS.md"), "old\n").unwrap();
+        let path = dir.path().join("AGENTS.md");
+        fs::write(&path, "# Keep me\n").unwrap();
 
-        let opts = InitOptions {
-            target: dir.path().to_path_buf(),
-            project_name: "forced".into(),
-            stack: Stack::Bun,
-            force: true,
-            dry_run: false,
-        };
-        run_init(&opts).unwrap();
-        let agents = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
-        assert!(agents.contains("`forced`"));
-        assert!(agents.contains("bun test"));
-        assert!(!agents.starts_with("old"));
+        let report = run_init(&opts(dir.path())).unwrap();
+        assert_eq!(kind_of(&report, "AGENTS.md"), ActionKind::Update);
+        let agents = fs::read_to_string(&path).unwrap();
+        assert!(agents.starts_with("# Keep me\n"));
+        assert!(agents.contains(merge::BLOCK_BEGIN));
+        assert!(agents.contains("`merged`"));
+
+        let again = run_init(&opts(dir.path())).unwrap();
+        assert_eq!(kind_of(&again, "AGENTS.md"), ActionKind::Unchanged);
+        assert_eq!(fs::read_to_string(&path).unwrap(), agents);
+    }
+
+    #[test]
+    fn regular_claude_md_imports_agents() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("CLAUDE.md");
+        fs::write(&path, "my notes\n").unwrap();
+
+        let report = run_init(&opts(dir.path())).unwrap();
+        assert_eq!(kind_of(&report, "CLAUDE.md"), ActionKind::Update);
+        let claude = fs::read_to_string(&path).unwrap();
+        assert!(claude.starts_with("my notes\n"));
+        assert!(claude.contains("\n@AGENTS.md\n"));
+    }
+
+    #[test]
+    fn existing_settings_json_is_merged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".claude/settings.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"model":"opus"}"#).unwrap();
+
+        let report = run_init(&opts(dir.path())).unwrap();
+        assert_eq!(
+            kind_of(&report, ".claude/settings.json"),
+            ActionKind::Update
+        );
+        let json = fs::read_to_string(&path).unwrap();
+        assert!(json.contains("\"model\": \"opus\""));
+        assert!(json.contains("spec_doc_review.py"));
+    }
+
+    #[test]
+    fn real_skills_dir_gets_per_skill_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = dir.path().join(".claude/skills");
+        fs::create_dir_all(skills.join("mine")).unwrap();
+
+        let report = run_init(&opts(dir.path())).unwrap();
+        assert!(skills.join("mine").is_dir());
+        for skill in SKILLS {
+            let link = skills.join(skill);
+            assert_eq!(
+                kind_of(&report, &format!(".claude/skills/{skill}")),
+                ActionKind::Link
+            );
+            assert!(link.join("SKILL.md").is_file());
+        }
+    }
+
+    #[test]
+    fn unmergeable_file_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = dir.path().join("docs/spec.md");
+        fs::create_dir_all(spec.parent().unwrap()).unwrap();
+        fs::write(&spec, "my spec\n").unwrap();
+        let settings = dir.path().join(".claude/settings.json");
+        fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        fs::write(&settings, "{ broken").unwrap();
+
+        let report = run_init(&opts(dir.path())).unwrap();
+        assert_eq!(kind_of(&report, "docs/spec.md"), ActionKind::Conflict);
+        assert_eq!(
+            kind_of(&report, ".claude/settings.json"),
+            ActionKind::Conflict
+        );
+        assert_eq!(report.conflicts(), 2);
+        assert_eq!(fs::read_to_string(spec).unwrap(), "my spec\n");
+        assert_eq!(fs::read_to_string(settings).unwrap(), "{ broken");
+    }
+
+    #[test]
+    fn rerun_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        run_init(&opts(dir.path())).unwrap();
+        let report = run_init(&opts(dir.path())).unwrap();
+        assert!(
+            report
+                .actions
+                .iter()
+                .all(|a| matches!(a.kind, ActionKind::Unchanged | ActionKind::SkipLinkOk))
+        );
+    }
+
+    #[test]
+    fn dry_run_merge_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("AGENTS.md");
+        fs::write(&path, "# Keep me\n").unwrap();
+        let mut o = opts(dir.path());
+        o.dry_run = true;
+        let report = run_init(&o).unwrap();
+        assert_eq!(kind_of(&report, "AGENTS.md"), ActionKind::Update);
+        assert_eq!(fs::read_to_string(path).unwrap(), "# Keep me\n");
     }
 }

@@ -16,7 +16,7 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 - 作为用户，我可以指定项目名，使生成的 `AGENTS.md` / `docs/spec.md` 使用正确名称。
 - 作为用户，我可以按技术栈生成合适的 Commands 片段（如 Rust / Node）。
 - 作为用户，我可以 dry-run 预览将写入的路径，而不修改磁盘。
-- 作为用户，默认不会覆盖已有文件；需要时显式 `--force`。
+- 作为用户，在已有配置的项目中运行 init 时，hnm 尽力把 harness 合并进去，不会删除或整体覆盖我的内容（见 `docs/prd/best-effort-merge.md`）。
 
 ## 目标
 
@@ -35,7 +35,7 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 ## 范围与用户流程
 
 1. 用户在目标仓库根或任意目录执行 `hnm init [PATH]`。
-2. CLI 解析 `--name`、`--stack`、`--force`、`--dry-run`。
+2. CLI 解析 `--name`、`--stack`、`--dry-run`。
 3. 未给 `--name` 时，使用目标目录名作为项目名。
 4. 渲染并写入 harness 文件；创建符号链接；打印摘要。
 5. dry-run 只打印计划，不写盘。
@@ -62,9 +62,9 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 
 - 目标路径不存在：创建该目录（含父路径）后继续；无法创建则报错退出非零。
 - 目标路径存在但是文件而非目录：报错退出。
-- 某输出路径已存在且未 `--force`：跳过该路径并在摘要中标记 skipped；其余路径继续。若全部应写路径均因冲突跳过且无新建，退出码仍可为 0，但摘要标明无变更。
+- 某输出路径已存在：按 best-effort 合并规则处理（update / unchanged）；无法安全合并时跳过并标记 skip，结束时提示 skip 数量，退出码仍为 0。
 - 渲染失败或写盘失败：报错，退出非零；不要求事务回滚已写文件。
-- dry-run：列出 would-create / would-skip，退出 0。
+- dry-run：列出将执行的 create / update / unchanged / skip / link，退出 0。
 
 ## 最小验收标准
 
@@ -72,7 +72,7 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 - `AGENTS.md` 与 `docs/spec.md` 含用户指定或推断的项目名。
 - `--stack rust|node|bun|go|python|generic` 影响 `AGENTS.md` 的 Commands 区。
 - `--dry-run` 不创建任何文件。
-- 无 `--force` 时不覆盖已有非链接文件内容。
+- 已有文件的用户内容永远保留（仅追加或刷新 managed block、合并 JSON）。
 - `cargo test` 与 `cargo build` 通过。
 
 ## 已解决的产品决策

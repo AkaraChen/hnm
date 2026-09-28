@@ -74,8 +74,10 @@ hnm init --dry-run
 hnm init
 ```
 
-Existing regular files are skipped by default. Review the printed plan and summary,
-then open `AGENTS.md` and `docs/spec.md` to adapt the generated guidance to your project.
+Existing files are merged best-effort instead of overwritten: `AGENTS.md` and a regular
+`CLAUDE.md` get an hnm-managed block, JSON hook configs are deep-merged, and a real
+`.claude/skills` directory gets per-skill links. Anything that cannot be merged safely is left
+untouched and reported as `skip`. Review the printed summary, then open `AGENTS.md` and `docs/spec.md` to adapt the generated guidance to your project.
 
 ## Usage
 
@@ -85,13 +87,9 @@ hnm init ./my-app --name my-app --stack rust
 
 # Preview the same setup without writing files
 hnm init ./my-app --name my-app --stack rust --dry-run
-
-# Explicitly replace existing harness files
-hnm init ./my-app --stack rust --force
 ```
 
-`--force` overwrites regular files at harness paths and replaces incorrect symlinks.
-Review local edits before using it. Without `--name`, the name comes from the target directory.
+Re-running `hnm init` is safe: it refreshes the managed blocks and reports unchanged paths. Without `--name`, the name comes from the target directory.
 
 ### Stack presets
 
