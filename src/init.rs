@@ -155,22 +155,30 @@ fn write_file(
     dry_run: bool,
 ) -> Result<ActionReport> {
     let path = root.join(rel);
-    let content = with_trailing_newline(content);
+    // Content as written to a fresh path; managed files start inside their block.
+    let fresh = match update {
+        Update::ManagedBlock => merge::block(content),
+        _ => with_trailing_newline(content),
+    };
 
     if fs::symlink_metadata(&path).is_err() {
         if !dry_run {
-            write_contents(&path, &content)?;
+            write_contents(&path, &fresh)?;
         }
         return Ok(report(rel, ActionKind::Create));
     }
 
     // Unreadable paths (directories, non-UTF-8, dangling links) are conflicts.
     let merged = match fs::read_to_string(&path) {
-        Ok(existing) if existing.trim_end() == content.trim_end() => Merged::Unchanged,
+        Ok(existing) if existing.trim_end() == fresh.trim_end() => Merged::Unchanged,
         Ok(existing) => match update {
             Update::Keep => Merged::Conflict,
-            Update::ManagedBlock => merge::upsert_block(&existing, &content),
-            Update::JsonMerge => merge::merge_json(&existing, &content),
+            // An untouched pre-0.2 file is exactly the raw template: adopt it into a block.
+            Update::ManagedBlock if existing.trim_end() == content.trim_end() => {
+                Merged::Updated(fresh.clone())
+            }
+            Update::ManagedBlock => merge::upsert_agents(&existing, content),
+            Update::JsonMerge => merge::merge_json(&existing, content),
         },
         Err(_) => Merged::Conflict,
     };
@@ -437,6 +445,44 @@ mod tests {
         let again = run_init(&opts(dir.path())).unwrap();
         assert_eq!(kind_of(&again, "AGENTS.md"), ActionKind::Unchanged);
         assert_eq!(fs::read_to_string(&path).unwrap(), agents);
+    }
+
+    #[test]
+    fn edits_around_created_block_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        run_init(&opts(dir.path())).unwrap();
+        let path = dir.path().join("AGENTS.md");
+        let created = fs::read_to_string(&path).unwrap();
+        assert!(created.starts_with(merge::BLOCK_BEGIN));
+        fs::write(&path, format!("# top\n{created}# bottom\n")).unwrap();
+
+        let mut o = opts(dir.path());
+        o.stack = Stack::Go;
+        let report = run_init(&o).unwrap();
+        assert_eq!(kind_of(&report, "AGENTS.md"), ActionKind::Update);
+        let agents = fs::read_to_string(&path).unwrap();
+        assert!(agents.starts_with("# top\n") && agents.ends_with("# bottom\n"));
+        assert_eq!(agents.matches(merge::BLOCK_BEGIN).count(), 1);
+        assert!(agents.contains("go test") && !agents.contains("cargo test"));
+    }
+
+    #[test]
+    fn legacy_agents_is_adopted_or_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("AGENTS.md");
+        let raw = render::render_agents(&TemplateContext {
+            project_name: "merged",
+            stack: Stack::Rust,
+        })
+        .unwrap();
+        fs::write(&path, &raw).unwrap();
+        let report = run_init(&opts(dir.path())).unwrap();
+        assert_eq!(kind_of(&report, "AGENTS.md"), ActionKind::Update);
+        assert_eq!(fs::read_to_string(&path).unwrap(), merge::block(&raw));
+
+        fs::write(&path, format!("{raw}\nlocal edit\n")).unwrap();
+        let report = run_init(&opts(dir.path())).unwrap();
+        assert_eq!(kind_of(&report, "AGENTS.md"), ActionKind::Conflict);
     }
 
     #[test]

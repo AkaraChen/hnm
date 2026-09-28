@@ -41,7 +41,7 @@ To inspect the script, select a version, or customize the destination:
 ```sh
 curl -fSL https://github.com/AkaraChen/hnm/releases/latest/download/install.sh -o install.sh
 # Review install.sh before running it.
-HNM_VERSION=v0.2.0 HNM_INSTALL_DIR="$HOME/.local/bin" sh install.sh
+HNM_VERSION=v0.2.1 HNM_INSTALL_DIR="$HOME/.local/bin" sh install.sh
 hnm --version
 ```
 
@@ -50,7 +50,7 @@ hnm --version
 PowerShell example:
 
 ```powershell
-$env:HNM_VERSION = 'v0.2.0'
+$env:HNM_VERSION = 'v0.2.1'
 $env:HNM_INSTALL_DIR = "$HOME\.local\bin"
 irm https://github.com/AkaraChen/hnm/releases/latest/download/install.ps1 | iex
 hnm --version

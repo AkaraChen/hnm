@@ -8,9 +8,10 @@ skip/`--force` 二选一：skip 会静默产生不完整 harness，`--force` 会
 
 移除 `--force`，init 只有一种模式：按路径的 best-effort 合并。策略声明在 `plan::harness_plan` 中（`Update` / `LinkFallback`），合并算法在 `merge` 模块中为纯函数。
 
-- Markdown：`<!-- hnm:begin -->` / `<!-- hnm:end -->` managed block，追加或原地替换。
+- Markdown：`<!-- hnm:begin -->` / `<!-- hnm:end -->` managed block，追加或原地替换。新建的 `AGENTS.md` 本身就包在 block 中，否则用户编辑后重跑会追加第二份模板。标记不成对（缺 end、重复、顺序颠倒）视为冲突，避免每次运行都追加。
+- 无 block 的旧版 `AGENTS.md`：与原始模板完全一致时收编进 block；含 harness 规则签名但有改动时 skip，不重复追加。
 - `CLAUDE.md` 被占用：使用 Claude Code 的 `@AGENTS.md` 导入语法，而非复制内容，避免两份规则漂移。
-- JSON：对象按键递归合并，数组追加缺失项（结构相等去重），标量以用户值为准；用 `serde_json` 的 `preserve_order` 保持用户键顺序。语义不变时不重写文件。
+- JSON：对象按键递归合并，数组追加缺失项（结构相等去重），标量以用户值为准；需要对象/数组的位置类型不符（如 `null`）视为冲突，而不是静默报 unchanged；用 `serde_json` 的 `preserve_order` 保持用户键顺序。语义不变时不重写文件。
 - `.claude/skills` 为真实目录：在其中逐个链接 harness skill。
 - 其余差异：保持不动，报 `skip`，末尾汇总提示。
 

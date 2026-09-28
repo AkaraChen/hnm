@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted，v0.2.0 实现。
+Accepted，v0.2.0 实现，v0.2.1 修正边界情况。
 
 ## 问题
 
@@ -32,4 +32,7 @@ Accepted，v0.2.0 实现。
 - 已有 `.claude/settings.json` 保留原键值并加入 hook；无效 JSON 原样保留并报 skip。
 - 真实 `.claude/skills` 目录保留原内容并获得每个 harness skill 的链接。
 - 对已初始化目录重跑不写任何文件。
+- 用户在 managed block 前后添加内容后重跑（含换 stack），内容保留且只有一个 block。
+- 标记不成对或 JSON 类型不符（如 `"hooks": null`）时报 skip，不重复追加、不误报 unchanged。
+- hnm 0.2.0 之前生成且未修改的 `AGENTS.md` 升级后被收编进 block；已修改的报 skip。
 - `--dry-run` 报告相同动作但不写盘。
