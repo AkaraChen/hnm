@@ -32,4 +32,6 @@ Windows x64 使用 MSVC 原生 runner，ZIP 内含 hnm.exe，发布同名 SHA-25
 
 Unix 使用 curl -fsSL URL | sh，Windows 使用 irm URL | iex；解释器负责执行，curl 单独不能安装。Unix 外层管道可能掩盖首次下载失败的退出码，但不会打印安装成功；需要严格退出码的自动化应先下载成功再执行。脚本 main 包装避免截断下载执行部分安装。Windows 入口使用脚本块隔离错误处理设置。
 
-不改 init 符号链接语义，不自动提权或改变系统策略。Windows init 要求开发者模式或符号链接权限；CI 在具备权限的 runner 验证。新增安装能力以 0.1.1 发布，沿用 PR 提交打标签的发布方式。
+不改 init 符号链接语义，不自动提权或改变系统策略。Windows init 要求开发者模式或符号链接权限；CI 在具备权限的 runner 验证。新增安装能力以 0.1.2 发布，沿用 PR 提交打标签的发布方式。
+
+0.1.1 的发布在测试阶段停止（PowerShell mock 的脚本作用域污染）；保留该 tag，修正测试后使用 0.1.2，避免移动已有标签。
