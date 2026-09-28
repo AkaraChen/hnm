@@ -291,6 +291,9 @@ fn create_symlink(target: &Path, link: &Path) -> Result<()> {
 
 #[cfg(windows)]
 fn create_symlink(target: &Path, link: &Path) -> Result<()> {
+    // Windows does not resolve `/`-separated link targets; store native separators.
+    let native: PathBuf = target.components().collect();
+    let target = native.as_path();
     // Harness links point at files (CLAUDE.md) or directories (.claude/skills).
     let result = if target.extension().is_some() || target == Path::new("AGENTS.md") {
         std::os::windows::fs::symlink_file(target, link)
