@@ -1,88 +1,104 @@
-# hnm
+<p align="center">
+  <img src="docs/assets/hnm-cover.jpg" alt="hnm — illustration of three document folders connected into one system" width="960">
+</p>
 
-Install a complete **agent documentation harness** into any project:
+<h1 align="center">hnm</h1>
 
-- `docs/prd/`, `docs/adr/`, `docs/spec.md`
-- `AGENTS.md` + `CLAUDE.md` symlink
-- `$feature-dev` skill (one-question 质问 before implementation)
-- `$git-commit` skill (conventional commits from the diff)
-- Claude/Codex skill wiring and pre-commit documentation review gate
+<p align="center">
+  Install a documentation workflow for your coding agents, in one command.
+</p>
 
-## Install
+<p align="center">
+  <a href="https://github.com/AkaraChen/hnm/actions/workflows/release.yml"><img src="https://github.com/AkaraChen/hnm/actions/workflows/release.yml/badge.svg" alt="Release workflow status"></a>
+</p>
 
-Install the latest release (no Rust toolchain required):
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#what-gets-written">File layout</a> ·
+  <a href="docs/spec.md">Specification</a> ·
+  <a href="https://github.com/AkaraChen/hnm/releases/latest">Releases</a>
+</p>
+
+Give Claude and Codex a shared place for requirements, decisions, and project rules.
+`hnm init` installs the docs, skills, and commit review hooks into your repository.
+
+## A workflow your agents can follow
+
+- **Clarify before building.** The `$feature-dev` skill walks through product and technical questions one at a time (质问), then records the plan before implementation.
+- **Keep decisions in the repo.** PRDs describe what to build, ADRs explain the choices, and `docs/spec.md` holds shared contracts.
+- **Review docs before committing.** Shared `AGENTS.md` rules, the `$git-commit` skill, and Claude/Codex hooks connect documentation review to the commit workflow.
+
+Skills and hooks take effect in agent runtimes that load the installed configuration.
+`hnm` sets up the workflow files; it does not generate application code or initialize Git.
+
+## Quick start
+
+### 1. Install hnm
+
+**macOS / Linux**
 
 ```sh
 curl -fsSL https://github.com/AkaraChen/hnm/releases/latest/download/install.sh | sh
 ```
 
-Supports macOS 11+ (Intel / Apple Silicon) and Linux with glibc 2.35+
-(x86_64 / ARM64; for example Ubuntu 22.04+). Alpine/musl is not supported
-by the Unix installer. CI tests on Ubuntu 22.04, macOS 14 ARM and macOS 15
-Intel; the minimum macOS version is a build target, not a tested OS.
+Requires macOS 11+ or Linux with glibc 2.35+, on Intel/x86_64 or ARM64.
+Add `~/.local/bin` to your PATH if needed:
 
-The script verifies SHA-256 and `hnm --version`, then installs to `~/.local/bin`.
-Add `export PATH="$HOME/.local/bin:$PATH"` to your shell configuration if needed.
-Rerun the same command to upgrade; existing project harnesses are untouched.
-Requires `curl`, `tar`, and `sha256sum` or `shasum`. No sudo is used.
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
 
-### Windows (PowerShell)
+**Windows · PowerShell**
 
 ```powershell
 irm https://github.com/AkaraChen/hnm/releases/latest/download/install.ps1 | iex
 ```
 
-Supports Windows x64 with PowerShell 5.1 or 7. No Rust, Git Bash, or administrator
-access is needed to install. SHA-256 and the binary version are checked before
-replacing an existing installation. Defaults to `$HOME/.local/bin`, adds it to
-the current session PATH, and prints instructions for future terminals.
-`HNM_VERSION` and `HNM_INSTALL_DIR` environment variables are also supported.
-Windows ARM64 native packages are not provided.
+Requires Windows x64 and PowerShell 5.1 or 7. The installer adds hnm to the current
+session PATH and prints instructions for future terminals. To run `hnm init`,
+enable Developer Mode or use an account with symlink privileges.
 
-`hnm init` creates symbolic links: enable Windows Developer Mode or run with
-symlink privileges. The installer does not change system policies.
+No Rust toolchain is needed. Installers check SHA-256 and the binary version before
+replacing an existing installation. Rerun to upgrade the CLI; project harnesses are untouched.
 
-### Options
+[Installation details](docs/installation.md) cover dependencies, platform limits,
+script inspection, version pinning, custom paths, and source builds.
 
-To inspect the script, select a version, or customize the destination:
+### 2. Preview, then initialize
 
-```sh
-curl -fSL https://github.com/AkaraChen/hnm/releases/latest/download/install.sh -o install.sh
-# Review install.sh before running it.
-HNM_VERSION=v0.1.3 HNM_INSTALL_DIR="$HOME/.local/bin" sh install.sh
-hnm --version
-```
-
-A missing release/asset, unsupported platform, checksum failure, or incompatible
-binary exits nonzero and leaves the existing executable intact. Checksums protect
-against corruption; downloads trust the repository and GitHub HTTPS.
-
-For other systems, clone this repository and build from source:
+From your project directory:
 
 ```sh
-cargo install --path . --locked
+hnm init --dry-run
+hnm init
 ```
+
+Existing regular files are skipped by default. Review the printed plan and summary,
+then open `AGENTS.md` and `docs/spec.md` to adapt the generated guidance to your project.
 
 ## Usage
 
-```bash
-# Install into the current directory
-hnm init
-
-# Target path, name, and stack preset
+```sh
+# Set the target directory, project name, and command preset
 hnm init ./my-app --name my-app --stack rust
 
-# Preview without writing
-hnm init --dry-run
+# Preview the same setup without writing files
+hnm init ./my-app --name my-app --stack rust --dry-run
 
-# Overwrite existing harness files
-hnm init --force
+# Explicitly replace existing harness files
+hnm init ./my-app --stack rust --force
 ```
+
+`--force` overwrites regular files at harness paths and replaces incorrect symlinks.
+Review local edits before using it. Without `--name`, the name comes from the target directory.
 
 ### Stack presets
 
+Presets fill the **Commands** section of `AGENTS.md`; they do not install dependencies.
+
 | `--stack` | Commands section |
-|-----------|------------------|
+| --- | --- |
 | `generic` (default) | Placeholder notes |
 | `rust` | cargo build/test/clippy/fmt |
 | `node` | npm scripts |
@@ -92,42 +108,44 @@ hnm init --force
 
 ## What gets written
 
-| Path | Notes |
-|------|--------|
-| `AGENTS.md` | Workflow + docs rules + stack commands |
-| `CLAUDE.md` | → `AGENTS.md` |
-| `docs/spec.md` | Bootstrap specification |
-| `docs/prd/`, `docs/adr/` | Empty dirs with `.gitkeep` |
-| `.agents/skills/feature-dev/` | Full 质问 skill |
-| `.agents/skills/git-commit/` | Conventional commit skill |
-| `.claude/skills` | → `../.agents/skills` |
-| `.claude/settings.json` | Commit doc-review hook |
-| `.codex/hooks.json` + `spec_doc_review.py` | Codex commit gate |
+```text
+project/
+├── AGENTS.md                 Workflow rules + stack commands
+├── CLAUDE.md → AGENTS.md
+├── docs/
+│   ├── prd/                  Product requirements
+│   ├── adr/                  Architecture decisions
+│   └── spec.md               Shared contracts
+├── .agents/skills/
+│   ├── feature-dev/          Clarification before implementation
+│   └── git-commit/           Conventional commits from the diff
+├── .claude/
+│   ├── skills → ../.agents/skills
+│   └── settings.json         Commit doc-review hook
+└── .codex/
+    ├── hooks.json
+    └── hooks/spec_doc_review.py
+```
+
+The skills include `SKILL.md` and `agents/openai.yaml`; empty PRD/ADR directories
+include `.gitkeep`. See the [complete generated layout](docs/spec.md#generated-harness-layout).
+
+## Project docs
+
+- [Specification](docs/spec.md) — CLI behavior, generation rules, and platform contracts.
+- [Harness requirements](docs/prd/harness-init.md) — scope and intended workflow.
+- [Implementation decisions](docs/adr/clap-minijinja-embedded-templates.md) — CLI, templates, and embedded resources.
+- [Installation](docs/installation.md) · [Release process](docs/releasing.md)
 
 ## Develop
 
-```bash
+With a Rust toolchain supporting edition 2024, clone this repository and run:
+
+```sh
 cargo test
 cargo run -- init --help
 ```
 
-## Release
+See [AGENTS.md](AGENTS.md) for the development workflow.
 
-1. Update `Cargo.toml` and `Cargo.lock` to the next stable version; merge the PR.
-2. Push the matching tag, for example `git tag v0.1.3 && git push origin v0.1.3`.
-3. The Release workflow tests and packages all five native targets, uploads the
-   archives, per-file SHA-256 checksums, and installers to a draft, then publishes
-   it only after every build passes. A final matrix installs from the public
-   Release and runs `--version` and `init`.
-
-Only the publish job needs `contents: write` through `GITHUB_TOKEN`; builds and
-PR checks are read-only. No personal token or external service is required.
-Tags must exactly match the Cargo version. Failed draft uploads can be rerun;
-published assets are never overwritten (fixes require a new version).
-Each Unix archive is named `hnm-vX.Y.Z-<rust-target>.tar.gz`, contains `hnm`, and has a
-matching `.sha256` file. `install.sh` and `install.sh.sha256` are also assets.
-
-Windows uses `hnm-vX.Y.Z-x86_64-pc-windows-msvc.zip` containing `hnm.exe`.
-`install.ps1` and its SHA-256 file are also Release assets.
-The short Unix pipe can hide the initial curl failure exit code; automation needing
-strict failure propagation should download successfully before invoking sh.
+<sub>Cover: AI-generated conceptual illustration, not a product screenshot. <a href="docs/readme-design.md">Design notes</a>.</sub>
