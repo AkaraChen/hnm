@@ -84,3 +84,13 @@ The installed `feature-dev` skill, `git-commit` skill, and `spec_doc_review` hoo
 
 - Product scope and init contract are specified.
 - Implementation delivers `hnm init` with clap, minijinja, embedded templates, skip/force/dry-run, and automated tests.
+
+## Binary distribution
+
+- Stable releases use `vX.Y.Z`, matching the Cargo package version.
+- Release assets cover `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin`, and `x86_64-pc-windows-msvc`. Linux requires glibc 2.35+; macOS requires 11+.
+- The installer defaults to the latest stable release and `$HOME/.local/bin`; `HNM_VERSION` pins a tag and `HNM_INSTALL_DIR` selects an absolute destination.
+- Installation validates SHA-256 and the executable version before replacing the installed binary. Failure exits nonzero and does not report success or replace an existing binary.
+- Installing or upgrading the CLI does not modify shell startup files or generated project harnesses.
+- Windows installation requires Windows x64 and PowerShell 5.1 or 7; ZIP assets contain hnm.exe. The default is $HOME/.local/bin. The installer adds it to the current process PATH only and prints persistent PATH instructions.
+- Windows init retains relative symbolic links and requires Developer Mode or symlink privileges. Installation itself does not require elevation.
