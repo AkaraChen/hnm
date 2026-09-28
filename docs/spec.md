@@ -23,7 +23,7 @@ The tool does not scaffold application business code, package managers, CI, or g
 - The binary name is `hnm`.
 - Primary command: `hnm init [PATH]`.
   - `PATH` defaults to `.`.
-  - `--name <NAME>` sets the project name embedded in templates; when omitted, use the target directory’s final path component (or `project` if it is empty/`.`-only after canonicalize fallback to the user-facing path name).
+  - `--name <NAME>` sets the project name embedded in templates; when omitted, use the supplied target path’s final component, falling back to `project` when absent, empty, `.` or `..`. The default `.` path therefore embeds `project`; the CLI does not canonicalize it to infer the current directory name.
   - `--stack <STACK>` selects the Commands section preset; default `generic`.
   - `--force` overwrites existing regular files and replaces incorrect symlinks.
   - `--dry-run` prints the plan without writing.
