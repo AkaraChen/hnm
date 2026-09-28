@@ -1,6 +1,6 @@
 [package]
 name = "hnm"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Install the agent documentation harness (PRD/ADR/spec, feature-dev, commit gate) into a project"
 license = "MIT"
