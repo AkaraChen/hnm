@@ -1,0 +1,672 @@
+diff --git a/GRAMMAR.md b/GRAMMAR.md
+index 181f723be5..28631cd4a7 100644
+--- a/GRAMMAR.md
++++ b/GRAMMAR.md
+@@ -83,6 +83,7 @@ module        : 'mod' '?'? NAME string?
+ boolean       : ':=' ('true' | 'false')
+ 
+ expression    : 'if' condition '{' expression '}' 'else' '{' expression '}'
++              | 'assert' '(' condition ',' expression ')'
+               | value '/' expression
+               | value '+' expression
+               | value
+diff --git a/src/assignment_resolver.rs b/src/assignment_resolver.rs
+index 2223900b6f..1835b4f022 100644
+--- a/src/assignment_resolver.rs
++++ b/src/assignment_resolver.rs
+@@ -54,25 +54,17 @@ impl<'src: 'run, 'run> AssignmentResolver<'src, 'run> {
+ 
+   fn resolve_expression(&mut self, expression: &Expression<'src>) -> CompileResult<'src> {
+     match expression {
+-      Expression::Variable { name } => {
+-        let variable = name.lexeme();
+-        if self.evaluated.contains(variable) {
+-          Ok(())
+-        } else if self.stack.contains(&variable) {
+-          self.stack.push(variable);
+-          Err(
+-            self.assignments[variable]
+-              .name
+-              .error(CircularVariableDependency {
+-                variable,
+-                circle: self.stack.clone(),
+-              }),
+-          )
+-        } else if self.assignments.contains_key(variable) {
+-          self.resolve_assignment(variable)
+-        } else {
+-          Err(name.token.error(UndefinedVariable { variable }))
+-        }
++      Expression::Assert {
++        condition: Condition {
++          lhs,
++          rhs,
++          operator: _,
++        },
++        error,
++      } => {
++        self.resolve_expression(lhs)?;
++        self.resolve_expression(rhs)?;
++        self.resolve_expression(error)
+       }
+       Expression::Call { thunk } => match thunk {
+         Thunk::Nullary { .. } => Ok(()),
+@@ -111,15 +103,12 @@ impl<'src: 'run, 'run> AssignmentResolver<'src, 'run> {
+         self.resolve_expression(lhs)?;
+         self.resolve_expression(rhs)
+       }
+-      Expression::Join { lhs, rhs } => {
+-        if let Some(lhs) = lhs {
+-          self.resolve_expression(lhs)?;
+-        }
+-        self.resolve_expression(rhs)
+-      }
+       Expression::Conditional {
+-        lhs,
+-        rhs,
++        condition: Condition {
++          lhs,
++          rhs,
++          operator: _,
++        },
+         then,
+         otherwise,
+         ..
+@@ -129,8 +118,34 @@ impl<'src: 'run, 'run> AssignmentResolver<'src, 'run> {
+         self.resolve_expression(then)?;
+         self.resolve_expression(otherwise)
+       }
+-      Expression::StringLiteral { .. } | Expression::Backtick { .. } => Ok(()),
+       Expression::Group { contents } => self.resolve_expression(contents),
++      Expression::Join { lhs, rhs } => {
++        if let Some(lhs) = lhs {
++          self.resolve_expression(lhs)?;
++        }
++        self.resolve_expression(rhs)
++      }
++      Expression::StringLiteral { .. } | Expression::Backtick { .. } => Ok(()),
++      Expression::Variable { name } => {
++        let variable = name.lexeme();
++        if self.evaluated.contains(variable) {
++          Ok(())
++        } else if self.stack.contains(&variable) {
++          self.stack.push(variable);
++          Err(
++            self.assignments[variable]
++              .name
++              .error(CircularVariableDependency {
++                variable,
++                circle: self.stack.clone(),
++              }),
++          )
++        } else if self.assignments.contains_key(variable) {
++          self.resolve_assignment(variable)
++        } else {
++          Err(name.token.error(UndefinedVariable { variable }))
++        }
++      }
+     }
+   }
+ }
+diff --git a/src/condition.rs b/src/condition.rs
+new file mode 100644
+index 0000000000..a103a2ac7a
+--- /dev/null
++++ b/src/condition.rs
+@@ -0,0 +1,27 @@
++use super::*;
++
++#[derive(PartialEq, Debug, Clone)]
++pub(crate) struct Condition<'src> {
++  pub(crate) lhs: Box<Expression<'src>>,
++  pub(crate) rhs: Box<Expression<'src>>,
++  pub(crate) operator: ConditionalOperator,
++}
++
++impl<'src> Display for Condition<'src> {
++  fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
++    write!(f, "{} {} {}", self.lhs, self.operator, self.rhs)
++  }
++}
++
++impl<'src> Serialize for Condition<'src> {
++  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
++  where
++    S: Serializer,
++  {
++    let mut seq = serializer.serialize_seq(None)?;
++    seq.serialize_element(&self.operator.to_string())?;
++    seq.serialize_element(&self.lhs)?;
++    seq.serialize_element(&self.rhs)?;
++    seq.end()
++  }
++}
+diff --git a/src/error.rs b/src/error.rs
+index 3411bd0426..0a59ca7df4 100644
+--- a/src/error.rs
++++ b/src/error.rs
+@@ -13,6 +13,9 @@ pub(crate) enum Error<'src> {
+     min: usize,
+     max: usize,
+   },
++  Assert {
++    message: String,
++  },
+   Backtick {
+     token: Token<'src>,
+     output_error: OutputError,
+@@ -256,6 +259,9 @@ impl<'src> ColorDisplay for Error<'src> {
+           write!(f, "Recipe `{recipe}` got {found} {count} but takes at most {max}")?;
+         }
+       }
++      Assert { message }=> {
++        write!(f, "Assert failed: {message}")?;
++      }
+       Backtick { output_error, .. } => match output_error {
+         OutputError::Code(code) => write!(f, "Backtick failed with exit code {code}")?,
+         OutputError::Signal(signal) => write!(f, "Backtick was terminated by signal {signal}")?,
+diff --git a/src/evaluator.rs b/src/evaluator.rs
+index c768625d1e..e6e14726e0 100644
+--- a/src/evaluator.rs
++++ b/src/evaluator.rs
+@@ -171,22 +171,11 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+         Ok(self.evaluate_expression(lhs)? + &self.evaluate_expression(rhs)?)
+       }
+       Expression::Conditional {
+-        lhs,
+-        rhs,
++        condition,
+         then,
+         otherwise,
+-        operator,
+       } => {
+-        let lhs_value = self.evaluate_expression(lhs)?;
+-        let rhs_value = self.evaluate_expression(rhs)?;
+-        let condition = match operator {
+-          ConditionalOperator::Equality => lhs_value == rhs_value,
+-          ConditionalOperator::Inequality => lhs_value != rhs_value,
+-          ConditionalOperator::RegexMatch => Regex::new(&rhs_value)
+-            .map_err(|source| Error::RegexCompile { source })?
+-            .is_match(&lhs_value),
+-        };
+-        if condition {
++        if self.evaluate_condition(condition)? {
+           self.evaluate_expression(then)
+         } else {
+           self.evaluate_expression(otherwise)
+@@ -198,9 +187,31 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+         lhs: Some(lhs),
+         rhs,
+       } => Ok(self.evaluate_expression(lhs)? + "/" + &self.evaluate_expression(rhs)?),
++      Expression::Assert { condition, error } => {
++        if self.evaluate_condition(condition)? {
++          Ok(String::new())
++        } else {
++          Err(Error::Assert {
++            message: self.evaluate_expression(error)?,
++          })
++        }
++      }
+     }
+   }
+ 
++  fn evaluate_condition(&mut self, condition: &Condition<'src>) -> RunResult<'src, bool> {
++    let lhs_value = self.evaluate_expression(&condition.lhs)?;
++    let rhs_value = self.evaluate_expression(&condition.rhs)?;
++    let condition = match condition.operator {
++      ConditionalOperator::Equality => lhs_value == rhs_value,
++      ConditionalOperator::Inequality => lhs_value != rhs_value,
++      ConditionalOperator::RegexMatch => Regex::new(&rhs_value)
++        .map_err(|source| Error::RegexCompile { source })?
++        .is_match(&lhs_value),
++    };
++    Ok(condition)
++  }
++
+   fn run_backtick(&self, raw: &str, token: &Token<'src>) -> RunResult<'src, String> {
+     let mut cmd = self.settings.shell_command(self.config);
+ 
+diff --git a/src/expression.rs b/src/expression.rs
+index 58f1441e51..81d3876434 100644
+--- a/src/expression.rs
++++ b/src/expression.rs
+@@ -8,6 +8,11 @@ use super::*;
+ /// The parser parses both values and expressions into `Expression`s.
+ #[derive(PartialEq, Debug, Clone)]
+ pub(crate) enum Expression<'src> {
++  /// `assert(condition, error)`
++  Assert {
++    condition: Condition<'src>,
++    error: Box<Expression<'src>>,
++  },
+   /// `contents`
+   Backtick {
+     contents: String,
+@@ -20,13 +25,11 @@ pub(crate) enum Expression<'src> {
+     lhs: Box<Expression<'src>>,
+     rhs: Box<Expression<'src>>,
+   },
+-  /// `if lhs == rhs { then } else { otherwise }`
++  /// `if condition { then } else { otherwise }`
+   Conditional {
+-    lhs: Box<Expression<'src>>,
+-    rhs: Box<Expression<'src>>,
++    condition: Condition<'src>,
+     then: Box<Expression<'src>>,
+     otherwise: Box<Expression<'src>>,
+-    operator: ConditionalOperator,
+   },
+   /// `(contents)`
+   Group { contents: Box<Expression<'src>> },
+@@ -50,6 +53,7 @@ impl<'src> Expression<'src> {
+ impl<'src> Display for Expression<'src> {
+   fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+     match self {
++      Expression::Assert { condition, error } => write!(f, "assert({condition}, {error})"),
+       Expression::Backtick { token, .. } => write!(f, "{}", token.lexeme()),
+       Expression::Join { lhs: None, rhs } => write!(f, "/ {rhs}"),
+       Expression::Join {
+@@ -58,15 +62,10 @@ impl<'src> Display for Expression<'src> {
+       } => write!(f, "{lhs} / {rhs}"),
+       Expression::Concatenation { lhs, rhs } => write!(f, "{lhs} + {rhs}"),
+       Expression::Conditional {
+-        lhs,
+-        rhs,
++        condition,
+         then,
+         otherwise,
+-        operator,
+-      } => write!(
+-        f,
+-        "if {lhs} {operator} {rhs} {{ {then} }} else {{ {otherwise} }}"
+-      ),
++      } => write!(f, "if {condition} {{ {then} }} else {{ {otherwise} }}"),
+       Expression::StringLiteral { string_literal } => write!(f, "{string_literal}"),
+       Expression::Variable { name } => write!(f, "{}", name.lexeme()),
+       Expression::Call { thunk } => write!(f, "{thunk}"),
+@@ -81,6 +80,13 @@ impl<'src> Serialize for Expression<'src> {
+     S: Serializer,
+   {
+     match self {
++      Self::Assert { condition, error } => {
++        let mut seq: <S as Serializer>::SerializeSeq = serializer.serialize_seq(None)?;
++        seq.serialize_element("assert")?;
++        seq.serialize_element(condition)?;
++        seq.serialize_element(error)?;
++        seq.end()
++      }
+       Self::Backtick { contents, .. } => {
+         let mut seq = serializer.serialize_seq(None)?;
+         seq.serialize_element("evaluate")?;
+@@ -103,17 +109,13 @@ impl<'src> Serialize for Expression<'src> {
+         seq.end()
+       }
+       Self::Conditional {
+-        lhs,
+-        rhs,
++        condition,
+         then,
+         otherwise,
+-        operator,
+       } => {
+         let mut seq = serializer.serialize_seq(None)?;
+         seq.serialize_element("if")?;
+-        seq.serialize_element(&operator.to_string())?;
+-        seq.serialize_element(lhs)?;
+-        seq.serialize_element(rhs)?;
++        seq.serialize_element(condition)?;
+         seq.serialize_element(then)?;
+         seq.serialize_element(otherwise)?;
+         seq.end()
+diff --git a/src/keyword.rs b/src/keyword.rs
+index 225f267eea..e0b6c63596 100644
+--- a/src/keyword.rs
++++ b/src/keyword.rs
+@@ -6,6 +6,7 @@ pub(crate) enum Keyword {
+   Alias,
+   AllowDuplicateRecipes,
+   AllowDuplicateVariables,
++  Assert,
+   DotenvFilename,
+   DotenvLoad,
+   DotenvPath,
+diff --git a/src/lib.rs b/src/lib.rs
+index 445e819019..ab5bd4adb4 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -19,15 +19,16 @@ pub(crate) use {
+     assignment_resolver::AssignmentResolver, ast::Ast, attribute::Attribute, binding::Binding,
+     color::Color, color_display::ColorDisplay, command_ext::CommandExt, compilation::Compilation,
+     compile_error::CompileError, compile_error_kind::CompileErrorKind, compiler::Compiler,
+-    conditional_operator::ConditionalOperator, config::Config, config_error::ConfigError,
+-    count::Count, delimiter::Delimiter, dependency::Dependency, dump_format::DumpFormat,
+-    enclosure::Enclosure, error::Error, evaluator::Evaluator, expression::Expression,
+-    fragment::Fragment, function::Function, function_context::FunctionContext,
+-    interrupt_guard::InterruptGuard, interrupt_handler::InterruptHandler, item::Item,
+-    justfile::Justfile, keyed::Keyed, keyword::Keyword, lexer::Lexer, line::Line, list::List,
+-    load_dotenv::load_dotenv, loader::Loader, name::Name, namepath::Namepath, ordinal::Ordinal,
+-    output::output, output_error::OutputError, parameter::Parameter, parameter_kind::ParameterKind,
+-    parser::Parser, platform::Platform, platform_interface::PlatformInterface, position::Position,
++    condition::Condition, conditional_operator::ConditionalOperator, config::Config,
++    config_error::ConfigError, count::Count, delimiter::Delimiter, dependency::Dependency,
++    dump_format::DumpFormat, enclosure::Enclosure, error::Error, evaluator::Evaluator,
++    expression::Expression, fragment::Fragment, function::Function,
++    function_context::FunctionContext, interrupt_guard::InterruptGuard,
++    interrupt_handler::InterruptHandler, item::Item, justfile::Justfile, keyed::Keyed,
++    keyword::Keyword, lexer::Lexer, line::Line, list::List, load_dotenv::load_dotenv,
++    loader::Loader, name::Name, namepath::Namepath, ordinal::Ordinal, output::output,
++    output_error::OutputError, parameter::Parameter, parameter_kind::ParameterKind, parser::Parser,
++    platform::Platform, platform_interface::PlatformInterface, position::Position,
+     positional::Positional, ran::Ran, range_ext::RangeExt, recipe::Recipe,
+     recipe_context::RecipeContext, recipe_resolver::RecipeResolver, scope::Scope, search::Search,
+     search_config::SearchConfig, search_error::SearchError, set::Set, setting::Setting,
+@@ -124,6 +125,7 @@ mod compile_error;
+ mod compile_error_kind;
+ mod compiler;
+ mod completions;
++mod condition;
+ mod conditional_operator;
+ mod config;
+ mod config_error;
+diff --git a/src/node.rs b/src/node.rs
+index 33e6a0a8b3..7359975d42 100644
+--- a/src/node.rs
++++ b/src/node.rs
+@@ -83,13 +83,19 @@ impl<'src> Node<'src> for Assignment<'src> {
+ impl<'src> Node<'src> for Expression<'src> {
+   fn tree(&self) -> Tree<'src> {
+     match self {
++      Expression::Assert {
++        condition: Condition { lhs, rhs, operator },
++        error,
++      } => Tree::atom(Keyword::Assert.lexeme())
++        .push(lhs.tree())
++        .push(operator.to_string())
++        .push(rhs.tree())
++        .push(error.tree()),
+       Expression::Concatenation { lhs, rhs } => Tree::atom("+").push(lhs.tree()).push(rhs.tree()),
+       Expression::Conditional {
+-        lhs,
+-        rhs,
++        condition: Condition { lhs, rhs, operator },
+         then,
+         otherwise,
+-        operator,
+       } => {
+         let mut tree = Tree::atom(Keyword::If.lexeme());
+         tree.push_mut(lhs.tree());
+diff --git a/src/parser.rs b/src/parser.rs
+index 749e5bb6a5..90d2b938ab 100644
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -504,18 +504,7 @@ impl<'run, 'src> Parser<'run, 'src> {
+ 
+   /// Parse a conditional, e.g. `if a == b { "foo" } else { "bar" }`
+   fn parse_conditional(&mut self) -> CompileResult<'src, Expression<'src>> {
+-    let lhs = self.parse_expression()?;
+-
+-    let operator = if self.accepted(BangEquals)? {
+-      ConditionalOperator::Inequality
+-    } else if self.accepted(EqualsTilde)? {
+-      ConditionalOperator::RegexMatch
+-    } else {
+-      self.expect(EqualsEquals)?;
+-      ConditionalOperator::Equality
+-    };
+-
+-    let rhs = self.parse_expression()?;
++    let condition = self.parse_condition()?;
+ 
+     self.expect(BraceL)?;
+ 
+@@ -535,10 +524,26 @@ impl<'run, 'src> Parser<'run, 'src> {
+     };
+ 
+     Ok(Expression::Conditional {
+-      lhs: Box::new(lhs),
+-      rhs: Box::new(rhs),
++      condition,
+       then: Box::new(then),
+       otherwise: Box::new(otherwise),
++    })
++  }
++
++  fn parse_condition(&mut self) -> CompileResult<'src, Condition<'src>> {
++    let lhs = self.parse_expression()?;
++    let operator = if self.accepted(BangEquals)? {
++      ConditionalOperator::Inequality
++    } else if self.accepted(EqualsTilde)? {
++      ConditionalOperator::RegexMatch
++    } else {
++      self.expect(EqualsEquals)?;
++      ConditionalOperator::Equality
++    };
++    let rhs = self.parse_expression()?;
++    Ok(Condition {
++      lhs: Box::new(lhs),
++      rhs: Box::new(rhs),
+       operator,
+     })
+   }
+@@ -564,18 +569,26 @@ impl<'run, 'src> Parser<'run, 'src> {
+       if contents.starts_with("#!") {
+         return Err(next.error(CompileErrorKind::BacktickShebang));
+       }
+-
+       Ok(Expression::Backtick { contents, token })
+     } else if self.next_is(Identifier) {
+-      let name = self.parse_name()?;
+-
+-      if self.next_is(ParenL) {
+-        let arguments = self.parse_sequence()?;
+-        Ok(Expression::Call {
+-          thunk: Thunk::resolve(name, arguments)?,
+-        })
++      if self.accepted_keyword(Keyword::Assert)? {
++        self.expect(ParenL)?;
++        let condition = self.parse_condition()?;
++        self.expect(Comma)?;
++        let error = Box::new(self.parse_expression()?);
++        self.expect(ParenR)?;
++        Ok(Expression::Assert { condition, error })
+       } else {
+-        Ok(Expression::Variable { name })
++        let name = self.parse_name()?;
++
++        if self.next_is(ParenL) {
++          let arguments = self.parse_sequence()?;
++          Ok(Expression::Call {
++            thunk: Thunk::resolve(name, arguments)?,
++          })
++        } else {
++          Ok(Expression::Variable { name })
++        }
+       }
+     } else if self.next_is(ParenL) {
+       self.presume(ParenL)?;
+@@ -2103,6 +2116,18 @@ mod tests {
+     tree: (justfile (mod ? foo "some/file/path.txt")),
+   }
+ 
++  test! {
++    name: assert,
++    text: "a := assert(foo == \"bar\", \"error\")",
++    tree: (justfile (assignment a (assert foo == "bar" "error"))),
++  }
++
++  test! {
++    name: assert_conditional_condition,
++    text: "foo := assert(if a != b { c } else { d } == \"abc\", \"error\")",
++    tree: (justfile (assignment foo (assert (if a != b c d) == "abc" "error"))),
++  }
++
+   error! {
+     name:   alias_syntax_multiple_rhs,
+     input:  "alias foo := bar baz",
+diff --git a/src/summary.rs b/src/summary.rs
+index 1677f69756..8945214634 100644
+--- a/src/summary.rs
++++ b/src/summary.rs
+@@ -19,9 +19,9 @@ use {
+ 
+ mod full {
+   pub(crate) use crate::{
+-    assignment::Assignment, conditional_operator::ConditionalOperator, dependency::Dependency,
+-    expression::Expression, fragment::Fragment, justfile::Justfile, line::Line,
+-    parameter::Parameter, parameter_kind::ParameterKind, recipe::Recipe, thunk::Thunk,
++    assignment::Assignment, condition::Condition, conditional_operator::ConditionalOperator,
++    dependency::Dependency, expression::Expression, fragment::Fragment, justfile::Justfile,
++    line::Line, parameter::Parameter, parameter_kind::ParameterKind, recipe::Recipe, thunk::Thunk,
+   };
+ }
+ 
+@@ -183,6 +183,10 @@ impl Assignment {
+ 
+ #[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Debug, Clone)]
+ pub enum Expression {
++  Assert {
++    condition: Condition,
++    error: Box<Expression>,
++  },
+   Backtick {
+     command: String,
+   },
+@@ -217,6 +221,17 @@ impl Expression {
+   fn new(expression: &full::Expression) -> Expression {
+     use full::Expression::*;
+     match expression {
++      Assert {
++        condition: full::Condition { lhs, rhs, operator },
++        error,
++      } => Expression::Assert {
++        condition: Condition {
++          lhs: Box::new(Expression::new(lhs)),
++          rhs: Box::new(Expression::new(rhs)),
++          operator: ConditionalOperator::new(*operator),
++        },
++        error: Box::new(Expression::new(error)),
++      },
+       Backtick { contents, .. } => Expression::Backtick {
+         command: (*contents).clone(),
+       },
+@@ -284,10 +299,8 @@ impl Expression {
+         rhs: Box::new(Expression::new(rhs)),
+       },
+       Conditional {
+-        lhs,
+-        operator,
++        condition: full::Condition { lhs, rhs, operator },
+         otherwise,
+-        rhs,
+         then,
+       } => Expression::Conditional {
+         lhs: Box::new(Expression::new(lhs)),
+@@ -307,6 +320,13 @@ impl Expression {
+   }
+ }
+ 
++#[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Debug, Clone)]
++pub struct Condition {
++  lhs: Box<Expression>,
++  rhs: Box<Expression>,
++  operator: ConditionalOperator,
++}
++
+ #[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Debug, Clone)]
+ pub enum ConditionalOperator {
+   Equality,
+diff --git a/src/variables.rs b/src/variables.rs
+index 8a17254a23..12b2509da9 100644
+--- a/src/variables.rs
++++ b/src/variables.rs
+@@ -49,11 +49,14 @@ impl<'expression, 'src> Iterator for Variables<'expression, 'src> {
+           }
+         },
+         Expression::Conditional {
+-          lhs,
+-          rhs,
++          condition:
++            Condition {
++              lhs,
++              rhs,
++              operator: _,
++            },
+           then,
+           otherwise,
+-          ..
+         } => {
+           self.stack.push(otherwise);
+           self.stack.push(then);
+@@ -74,6 +77,19 @@ impl<'expression, 'src> Iterator for Variables<'expression, 'src> {
+         Expression::Group { contents } => {
+           self.stack.push(contents);
+         }
++        Expression::Assert {
++          condition:
++            Condition {
++              lhs,
++              rhs,
++              operator: _,
++            },
++          error,
++        } => {
++          self.stack.push(error);
++          self.stack.push(rhs);
++          self.stack.push(lhs);
++        }
+       }
+     }
+   }
+diff --git a/tests/assertions.rs b/tests/assertions.rs
+new file mode 100644
+index 0000000000..72a6508ae1
+--- /dev/null
++++ b/tests/assertions.rs
+@@ -0,0 +1,22 @@
++use super::*;
++
++test! {
++  name: assert_pass,
++  justfile: "
++    foo:
++      {{ assert('a' == 'a', 'error message') }}
++  ",
++  stdout: "",
++  stderr: "",
++}
++
++test! {
++  name: assert_fail,
++  justfile: "
++    foo:
++      {{ assert('a' != 'a', 'error message') }}
++  ",
++  stdout: "",
++  stderr: "error: Assert failed: error message\n",
++  status: EXIT_FAILURE,
++}
+diff --git a/tests/json.rs b/tests/json.rs
+index 92839a5259..dd300762a9 100644
+--- a/tests/json.rs
++++ b/tests/json.rs
+@@ -262,7 +262,7 @@ fn dependency_argument() {
+               ["concatenate", "a", "b"],
+               ["evaluate", "echo"],
+               ["variable", "x"],
+-              ["if", "==", "a", "b", "c", "d"],
++              ["if", ["==", "a", "b"], "c", "d"],
+               ["call", "arch"],
+               ["call", "env_var", "foo"],
+               ["call", "join", "a", "b"],
+diff --git a/tests/lib.rs b/tests/lib.rs
+index fa0df588a5..abb3c46c76 100644
+--- a/tests/lib.rs
++++ b/tests/lib.rs
+@@ -36,6 +36,7 @@ mod allow_duplicate_recipes;
+ mod allow_duplicate_variables;
+ mod assert_stdout;
+ mod assert_success;
++mod assertions;
+ mod attributes;
+ mod backticks;
+ mod byte_order_mark;

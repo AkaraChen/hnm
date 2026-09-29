@@ -1,0 +1,7 @@
+{
+  "frozen_at": "2026-09-29T13:15:11.445624+08:00",
+  "v4_sha256": "f2c4256378534efc1e6381cadf0fcb65b6f75303b7547512ac6d60b539304068",
+  "train_failure_basis": "1748 hook-t1 silently generalizes scalar search semantics, omits lists gate and introduces unconfirmed empty-list behavior. Other train cases show fewer questions with complete coverage. No test dialogue or grades inspected for revision.",
+  "train_selection": "Compare v3 and v4 with identical base on six train issues: require no lower mean document coverage and fewer questions than base; inspect wrong decisions, non-goal violations and unconfirmed behavior before choosing candidate.",
+  "test_policy": "Freeze selection before inspecting held-out results. Report any regression; do not claim statistical confidence from one trial. Do not merge based solely on this small experiment."
+}

@@ -1,0 +1,17 @@
+{
+  "id": "3191",
+  "title": "Make --list the default action",
+  "base": "50dd0ab29ff5f9be531a6b0f5399a1ae1a95a179",
+  "opening": "很多 justfile 的第一个 recipe 只是 `@just --list`，用来在不带参数运行 just 时列出 recipe。但这样要递归调用 just，还得记得加 `--justfile {{justfile()}}`，不然用 -f 指定别的 justfile 时会列错文件，而且在某些平台上慢很多。我想让 just 直接支持“不带参数时列出 recipe”作为默认行为。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "brief": "你是 just 的维护者兼这个需求的提出者。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 两种入口都要：justfile 里的布尔设置 `set default-list`（默认 false，对某个 justfile 生效），以及命令行 `--default-list` 加环境变量 `JUST_DEFAULT_LIST`（给想全局这样用的个人用户）。\n2. 命名用 `default-list` 布尔值，而不是 `set default := list` 这种枚举。\n3. 只影响“不带 recipe 参数”的情况；显式给了 recipe 名字仍然正常运行该 recipe。\n4. 开启后，即使第一个 recipe 需要参数也不报错，因为它不会被运行。\n5. 设置按 module 生效：`just foo`（foo 是 module）时，若 foo 模块开启了 default-list 就列出 foo 的 recipe；根 justfile 的设置不影响子模块的默认行为。\n6. 列出的格式与 `just --list` 一致，不另造格式。\n7. 不改变默认行为（不把 default-list 设为默认开启），避免破坏现有 justfile。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。",
+  "decisions": [
+    "同时提供 justfile 设置 default-list 与 CLI --default-list / JUST_DEFAULT_LIST",
+    "布尔设置 default-list，默认 false，而非 set default := list",
+    "显式指定 recipe 时仍运行该 recipe",
+    "开启后默认 recipe 需要参数也不报错",
+    "按 module 生效，根设置不影响子模块",
+    "输出与 just --list 一致",
+    "不改变全局默认行为"
+  ],
+  "non_goals": ["默认开启", "新的列表格式"]
+}

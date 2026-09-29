@@ -1,0 +1,16 @@
+{
+  "id": "2908",
+  "title": "Configurable justfile names",
+  "base": "252b1e0101f3821aa050d484e9b106414040546f",
+  "opening": "我想在项目目录里放一个只给自己用、不提交到仓库的 `.localjustfile`。现在的问题是：如果项目本身已经用了 `justfile`，再放 `.justfile` 会因为多个候选报错；而 `--justfile` 只能指定确切路径，失去了 just 自动向上查找 justfile 的能力。我希望 just 能让我改它搜索的文件名，同时保留向上查找。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "brief": "你是这个需求的提出者，维护者已经同意了方案。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 做成命令行选项 `--justfile-name <NAME>`，也可以通过环境变量 `JUST_JUSTFILE_NAME` 设置（这样可以在 shell 里一次配好）。不能做成 justfile 里的 setting，因为它决定的是找哪个文件。\n2. 可以给多个名字，按给出的顺序依次检查。\n3. 指定了名字之后，只找这些名字，不再找默认的 `justfile`/`.justfile`。\n4. 查找行为与默认一致：从当前目录向上，停在最近的一个匹配处。\n5. 找不到时，报和现在一样的 “No justfile found” 错误。\n6. 和 `--init` 一起用时，创建的文件名用第一个名字。\n7. 不想依赖项目里的主 justfile 做 `import?`，也不要全局 justfile；不做 glob/通配符。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。",
+  "decisions": [
+    "CLI 选项 --justfile-name，并支持环境变量 JUST_JUSTFILE_NAME；不是 justfile setting",
+    "可以提供多个名字，按顺序检查",
+    "指定后替换默认名，不再搜索 justfile/.justfile",
+    "保持向上搜索，停在最近匹配",
+    "找不到时报现有的 No justfile found 错误",
+    "与 --init 一起用时以第一个名字创建文件"
+  ],
+  "non_goals": ["依赖 import? 的方案", "全局 justfile", "glob/通配符"]
+}

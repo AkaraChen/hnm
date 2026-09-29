@@ -1,0 +1,17 @@
+{
+  "id": "2082",
+  "title": "Per-recipe working directory attribute",
+  "base": "fdf34748e7485201941aafe6c309e794dcbe70f8",
+  "opening": "我想给单个 recipe 指定它运行时的工作目录。比如 `build` 要在 `frontend/` 里跑 `npm run build`。现在我只能在命令里写 `cd frontend && ...`，而且 Windows 和 Linux 的 shell 写法还不一样，很难跨平台。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "decisions": [
+    "recipe 属性 [working-directory(PATH)]，与设置同名",
+    "相对路径相对默认工作目录",
+    "属性覆盖 set working-directory",
+    "与 [no-cd] 同时出现报错",
+    "重复属性报错"
+  ],
+  "non_goals": [
+    "[cd(...)] 命名"
+  ],
+  "brief": "你是这个需求的提出者，维护者已经认可了方案。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 做成 recipe 属性，名字和现有 `set working-directory` 保持一致，叫 `[working-directory(PATH)]`（也支持 `[working-directory: 'PATH']` 写法），而不是 `[cd(...)]`。\n2. PATH 可以是绝对路径或相对路径；相对路径相对于这个 recipe 本来会用的默认工作目录解析。\n3. 如果同时有 `set working-directory`，属性优先，覆盖设置，且相对路径同样相对默认工作目录（不是相对设置里的目录）。\n4. 同一个 recipe 上与 `[no-cd]` 同时出现要报错。\n5. 同一个 recipe 重复写两次该属性要报错。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。"
+}

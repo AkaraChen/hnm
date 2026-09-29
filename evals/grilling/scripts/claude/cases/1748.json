@@ -1,0 +1,18 @@
+{
+  "id": "1748",
+  "title": "Load multiple dotenv files",
+  "base": "d7f5d6198e643c6cbca482bfab7e38f77bdd74c4",
+  "opening": "我想给 just 加一个功能：能按层叠的方式加载多个 dotenv 文件，类似 bkeepers/dotenv 那种 .env + .env.local / .env.prod 的做法。.env 放默认值，环境专属的文件只写要覆盖的变量，不用每个环境文件都重复一遍公共变量。某些文件（比如 .env.local）不一定存在，缺了不应该报错。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "brief": "你是 just 的维护者兼这个需求的提出者。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 不新增第三个设置。复用现有的 `dotenv-filename` 和 `dotenv-path`，让它们都可以接受列表。\n2. 列表语法目前是实验性的，要求 justfile 里先写 `set lists`，否则给列表值要报错。\n3. 多个文件都加载时，列表里靠后的文件覆盖靠前的（后者优先）。\n4. 缺失的文件静默跳过。`dotenv-required` 只要至少加载到一个文件就算满足。\n5. `dotenv-path` 列表优先尝试；一个都没找到时，再退回到按 `dotenv-filename` 搜索。\n6. `dotenv-filename` 列表的搜索：从工作目录向上逐级查找，停在第一个包含任意一个候选名的目录，并加载该目录里所有匹配的文件（不跨目录合并）。\n7. 已有的环境变量仍然优先于 dotenv 里的值，除非设置了 `dotenv-override`，这个行为对列表同样适用。\n8. 空列表等同于未设置，不加载任何文件。\n9. 命令行 `--dotenv-filename` / `--dotenv-path` 保持单值即可，这次不做多值 CLI。\n10. 不支持 glob；文件名里用变量插值不是这次的目标。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。",
+  "decisions": [
+    "复用 dotenv-filename 与 dotenv-path 接受列表，而不是新增设置",
+    "列表值需要 `set lists`，否则报错",
+    "后面的文件覆盖前面的（last wins）",
+    "缺失文件静默跳过；dotenv-required 至少一个文件存在即满足",
+    "dotenv-path 列表优先，都不存在时回退到 dotenv-filename 搜索",
+    "dotenv-filename 列表向上搜索，停在第一个含任一候选的目录并加载该目录所有匹配文件",
+    "环境变量仍优先于 dotenv，除非 dotenv-override",
+    "空列表等同未设置"
+  ],
+  "non_goals": ["多值 CLI 参数", "glob", "文件名变量插值"]
+}

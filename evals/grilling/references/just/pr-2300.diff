@@ -1,0 +1,384 @@
+diff --git a/src/analyzer.rs b/src/analyzer.rs
+index 65bd382c31..de023c41ba 100644
+--- a/src/analyzer.rs
++++ b/src/analyzer.rs
+@@ -159,11 +159,9 @@ impl<'src> Analyzer<'src> {
+         return Err(assignment.name.token.error(DuplicateVariable { variable }));
+       }
+ 
+-      if self
+-        .assignments
+-        .get(variable)
+-        .map_or(true, |original| assignment.depth <= original.depth)
+-      {
++      if self.assignments.get(variable).map_or(true, |original| {
++        assignment.file_depth <= original.file_depth
++      }) {
+         self.assignments.insert(assignment.clone());
+       }
+ 
+diff --git a/src/binding.rs b/src/binding.rs
+index 6a8c0c70cd..7e7890c7a1 100644
+--- a/src/binding.rs
++++ b/src/binding.rs
+@@ -3,13 +3,11 @@ use super::*;
+ /// A binding of `name` to `value`
+ #[derive(Debug, Clone, PartialEq, Serialize)]
+ pub(crate) struct Binding<'src, V = String> {
+-  /// Module depth where binding appears
+-  pub(crate) depth: u32,
+-  /// Export binding as an environment variable to child processes
+   pub(crate) export: bool,
+-  /// Binding name
++  #[serde(skip)]
++  pub(crate) file_depth: u32,
+   pub(crate) name: Name<'src>,
+-  /// Binding value
++  pub(crate) private: bool,
+   pub(crate) value: V,
+ }
+ 
+diff --git a/src/evaluator.rs b/src/evaluator.rs
+index 9efe807dc6..4ed00036d1 100644
+--- a/src/evaluator.rs
++++ b/src/evaluator.rs
+@@ -32,7 +32,12 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+ 
+     for (name, value) in overrides {
+       if let Some(assignment) = module.assignments.get(name) {
+-        scope.bind(assignment.export, assignment.name, value.clone());
++        scope.bind(
++          assignment.export,
++          assignment.name,
++          assignment.private,
++          value.clone(),
++        );
+       } else {
+         unknown_overrides.push(name.clone());
+       }
+@@ -63,7 +68,12 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+ 
+     if !self.scope.bound(name) {
+       let value = self.evaluate_expression(&assignment.value)?;
+-      self.scope.bind(assignment.export, assignment.name, value);
++      self.scope.bind(
++        assignment.export,
++        assignment.name,
++        assignment.private,
++        value,
++      );
+     }
+ 
+     Ok(self.scope.value(name).unwrap())
+@@ -321,7 +331,7 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+       };
+       evaluator
+         .scope
+-        .bind(parameter.export, parameter.name, value);
++        .bind(parameter.export, parameter.name, false, value);
+     }
+ 
+     Ok((evaluator.scope, positional))
+diff --git a/src/justfile.rs b/src/justfile.rs
+index b31084ef18..ab5fc6dbb8 100644
+--- a/src/justfile.rs
++++ b/src/justfile.rs
+@@ -164,12 +164,14 @@ impl<'src> Justfile<'src> {
+           let width = scope.names().fold(0, |max, name| name.len().max(max));
+ 
+           for binding in scope.bindings() {
+-            println!(
+-              "{0:1$} := \"{2}\"",
+-              binding.name.lexeme(),
+-              width,
+-              binding.value
+-            );
++            if !binding.private {
++              println!(
++                "{0:1$} := \"{2}\"",
++                binding.name.lexeme(),
++                width,
++                binding.value
++              );
++            }
+           }
+         }
+ 
+diff --git a/src/parser.rs b/src/parser.rs
+index adc95048e7..b896cd0b13 100644
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -343,7 +343,9 @@ impl<'run, 'src> Parser<'run, 'src> {
+           }
+           Some(Keyword::Export) if self.next_are(&[Identifier, Identifier, ColonEquals]) => {
+             self.presume_keyword(Keyword::Export)?;
+-            items.push(Item::Assignment(self.parse_assignment(true)?));
++            items.push(Item::Assignment(
++              self.parse_assignment(true, take_attributes())?,
++            ));
+           }
+           Some(Keyword::Unexport)
+             if self.next_are(&[Identifier, Identifier, Eof])
+@@ -412,7 +414,9 @@ impl<'run, 'src> Parser<'run, 'src> {
+           }
+           _ => {
+             if self.next_are(&[Identifier, ColonEquals]) {
+-              items.push(Item::Assignment(self.parse_assignment(false)?));
++              items.push(Item::Assignment(
++                self.parse_assignment(false, take_attributes())?,
++              ));
+             } else {
+               let doc = pop_doc_comment(&mut items, eol_since_last_comment);
+               items.push(Item::Recipe(self.parse_recipe(
+@@ -473,16 +477,21 @@ impl<'run, 'src> Parser<'run, 'src> {
+   }
+ 
+   /// Parse an assignment, e.g. `foo := bar`
+-  fn parse_assignment(&mut self, export: bool) -> CompileResult<'src, Assignment<'src>> {
++  fn parse_assignment(
++    &mut self,
++    export: bool,
++    attributes: BTreeSet<Attribute<'_>>,
++  ) -> CompileResult<'src, Assignment<'src>> {
+     let name = self.parse_name()?;
+-    self.presume_any(&[Equals, ColonEquals])?;
++    self.presume(ColonEquals)?;
+     let value = self.parse_expression()?;
+     self.expect_eol()?;
+     Ok(Assignment {
+-      depth: self.file_depth,
++      file_depth: self.file_depth,
+       export,
+       name,
+       value,
++      private: name.lexeme().starts_with('_') || attributes.contains(&Attribute::Private),
+     })
+   }
+ 
+@@ -1237,6 +1246,15 @@ mod tests {
+     tree: (justfile (assignment #export x "hello")),
+   }
+ 
++  test! {
++    name: private_export,
++    text: "
++      [private]
++      export x := 'hello'
++    ",
++    tree: (justfile (assignment #export x "hello")),
++  }
++
+   test! {
+     name: export_equals,
+     text: r#"export x := "hello""#,
+@@ -1251,6 +1269,15 @@ mod tests {
+     tree: (justfile (assignment x "hello")),
+   }
+ 
++  test! {
++    name: private_assignment,
++    text: "
++      [private]
++      x := 'hello'
++      ",
++    tree: (justfile (assignment x "hello")),
++  }
++
+   test! {
+     name: assignment_equals,
+     text: r#"x := "hello""#,
+diff --git a/src/scope.rs b/src/scope.rs
+index dd7888c1ba..36bbedc8aa 100644
+--- a/src/scope.rs
++++ b/src/scope.rs
+@@ -34,6 +34,7 @@ impl<'src, 'run> Scope<'src, 'run> {
+             src: key,
+           },
+         },
++        false,
+         (*value).into(),
+       );
+     }
+@@ -41,11 +42,12 @@ impl<'src, 'run> Scope<'src, 'run> {
+     root
+   }
+ 
+-  pub(crate) fn bind(&mut self, export: bool, name: Name<'src>, value: String) {
++  pub(crate) fn bind(&mut self, export: bool, name: Name<'src>, private: bool, value: String) {
+     self.bindings.insert(Binding {
+-      depth: 0,
+       export,
++      file_depth: 0,
+       name,
++      private,
+       value,
+     });
+   }
+diff --git a/src/subcommand.rs b/src/subcommand.rs
+index 3f2c1ce90c..fa6f1e0b7e 100644
+--- a/src/subcommand.rs
++++ b/src/subcommand.rs
+@@ -714,7 +714,12 @@ impl Subcommand {
+   }
+ 
+   fn variables(justfile: &Justfile) {
+-    for (i, (_, assignment)) in justfile.assignments.iter().enumerate() {
++    for (i, (_, assignment)) in justfile
++      .assignments
++      .iter()
++      .filter(|(_, binding)| !binding.private)
++      .enumerate()
++    {
+       if i > 0 {
+         print!(" ");
+       }
+diff --git a/tests/evaluate.rs b/tests/evaluate.rs
+index 9c38b344a9..110184c837 100644
+--- a/tests/evaluate.rs
++++ b/tests/evaluate.rs
+@@ -77,3 +77,29 @@ test! {
+   ",
+   status: EXIT_FAILURE,
+ }
++
++test! {
++  name:    evaluate_private,
++  justfile: "
++    [private]
++    foo := 'one'
++    bar := 'two'
++    _baz := 'three'
++  ",
++  args:   ("--evaluate"),
++  stdout: "bar  := \"two\"\n",
++  status: EXIT_SUCCESS,
++}
++
++test! {
++  name:    evaluate_single_private,
++  justfile: "
++    [private]
++    foo := 'one'
++    bar := 'two'
++    _baz := 'three'
++  ",
++  args:   ("--evaluate", "foo"),
++  stdout: "one",
++  status: EXIT_SUCCESS,
++}
+diff --git a/tests/json.rs b/tests/json.rs
+index 961bdfa4ff..bf962a1e3f 100644
+--- a/tests/json.rs
++++ b/tests/json.rs
+@@ -81,7 +81,7 @@ fn assignment() {
+           "export": false,
+           "name": "foo",
+           "value": "bar",
+-          "depth": 0,
++          "private": false,
+         }
+       },
+       "first": null,
+@@ -114,6 +114,60 @@ fn assignment() {
+   );
+ }
+ 
++#[test]
++fn private_assignment() {
++  case(
++    "
++      _foo := 'foo'
++      [private]
++      bar := 'bar'
++    ",
++    json!({
++      "aliases": {},
++      "assignments": {
++        "_foo": {
++          "export": false,
++          "name": "_foo",
++          "value": "foo",
++          "private": true,
++        },
++        "bar": {
++          "export": false,
++          "name": "bar",
++          "value": "bar",
++          "private": true,
++        },
++      },
++      "first": null,
++      "doc": null,
++      "groups": [],
++      "modules": {},
++      "recipes": {},
++      "settings": {
++        "allow_duplicate_recipes": false,
++        "allow_duplicate_variables": false,
++        "dotenv_filename": null,
++        "dotenv_load": false,
++        "dotenv_path": null,
++        "dotenv_required": false,
++        "export": false,
++        "fallback": false,
++        "ignore_comments": false,
++        "positional_arguments": false,
++        "quiet": false,
++        "shell": null,
++        "tempdir" : null,
++        "unstable": false,
++        "windows_powershell": false,
++        "windows_shell": null,
++        "working_directory" : null,
++      },
++      "unexports": [],
++      "warnings": [],
++    }),
++  );
++}
++
+ #[test]
+ fn body() {
+   case(
+@@ -271,7 +325,7 @@ fn dependency_argument() {
+           "export": false,
+           "name": "x",
+           "value": "foo",
+-          "depth": 0,
++          "private": false,
+         },
+       },
+       "groups": [],
+@@ -435,7 +489,7 @@ fn duplicate_variables() {
+           "export": false,
+           "name": "x",
+           "value": "bar",
+-          "depth": 0,
++          "private": false,
+         }
+       },
+       "first": null,
+diff --git a/tests/private.rs b/tests/private.rs
+index 9ab0cd82ce..73d4636c59 100644
+--- a/tests/private.rs
++++ b/tests/private.rs
+@@ -38,3 +38,19 @@ fn private_attribute_for_alias() {
+     )
+     .run();
+ }
++
++#[test]
++fn private_variables_are_not_listed() {
++  Test::new()
++    .justfile(
++      "
++      [private]
++      foo := 'one'
++      bar := 'two'
++      _baz := 'three'
++      ",
++    )
++    .args(["--variables"])
++    .stdout("bar\n")
++    .run();
++}

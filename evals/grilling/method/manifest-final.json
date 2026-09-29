@@ -1,0 +1,36 @@
+{
+  "finished_at": "2026-09-29T13:48:59.797799+08:00",
+  "formal_dialogues": 40,
+  "source_mutation_runs": 0,
+  "grader_counts": {
+    "gpt-6-sol": 39,
+    "primary_assistant_review": 1
+  },
+  "simulator_audits": 40,
+  "human_reviews": 0,
+  "native_hook_integration_tested": false,
+  "candidate_adopted": false,
+  "browser_checks": {
+    "issue_variant_views": 24,
+    "mobile_width": 390,
+    "mobile_overflow": false,
+    "json_download_matches_results": true,
+    "repeat_trial_2_turns": 23
+  },
+  "files_sha256": {
+    "hook.txt": "b551fc8981aa95b72e90a91181b85c2e614c0ab1f0557dc6e2ea8354985643ba",
+    "run.py": "58ff7f491ce2bf86ca6ef7e894178a2a30ed5b561f8763910e02ef7d0287b060",
+    "hook-v4.txt": "f2c4256378534efc1e6381cadf0fcb65b6f75303b7547512ac6d60b539304068",
+    "grade_watch.py": "f6fe5f59c54c49746a4d696bf39662a4f67df70154e0f4b010deffb1f569ecf1",
+    "conclusion.txt": "7a22ae1624caad9509c58754c1eba87b51af6b6db757686447bb993895b84703",
+    "README.md": "ce5e95044f5603da8914a5275dda63794f13fa4ca1d4618a6caa7eca20b9379d",
+    "FINDINGS.md": "3c52b97248df31291b9524d29cea21ac692672de8f4ba275e1f946346d5709ba",
+    "audit_sim.py": "8bcdfb8ae1482dbc107d1c10008b801d74da062b66b08278d8716c76f305dea6",
+    "verify.py": "a6790fd5a88130ee3391b3329420182373197ad4e9898c4b497351fea7194bae",
+    "report.py": "404a8587f5f9b4cfcdc87b4c244af49d03509563bcfb1af82b1ff83792a91b4a",
+    "role-only.txt": "7477e0171c23062e47f455002f2f71dd621d327be4b1c53504b7ad556e26ec06",
+    "grade.py": "7f602998b31020d040befda05ec2f150f2813c910e65025a4fb9a4d0778e3a5f",
+    "selected-arm.txt": "748864ee8ee7ebe57f4f7da36778efa2bc4d4a0691eda34a3778040828319580",
+    "feature-dev.md": "905c5dcd3fe6e12342f307564652ebc505e20d0489a054dcc0e133eb7a69ecf1"
+  }
+}

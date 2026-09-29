@@ -1,0 +1,408 @@
+diff --git a/README.md b/README.md
+index 3175aeefe2..06786e247b 100644
+--- a/README.md
++++ b/README.md
+@@ -950,6 +950,12 @@ $ just bar
+ /subdir
+ ```
+ 
++Use `set no-cd`<sup>master</sup> to make all recipes in the current module
++default to the same behavior.
++
++`set no-cd` and `set working-directory` can be overridden on a per-recipe basis
++with the `[no-cd]` and `[working-directory]` attributes.
++
+ You can override the working directory for all recipes with
+ `set working-directory := '…'`:
+ 
+@@ -1043,6 +1049,7 @@ foo:
+ | `ignore-comments` | boolean | `false` | Ignore recipe lines beginning with `#`. |
+ | `no-exit-message`<sup>1.39.0</sup> | boolean | `false` | Don't print exit messages if recipes fail. |
+ | `lazy`<sup>1.47.0</sup> | boolean | `false` | Don't evaluate unused variables. |
++| `no-cd`<sup>master</sup> | boolean | `false` | Don't change directory when executing recipes by recipe attribute. |
+ | `positional-arguments` | boolean | `false` | Pass positional arguments. |
+ | `quiet` | boolean | `false` | Disable echoing recipe lines before executing. |
+ | `script-interpreter`<sup>1.33.0</sup> | `[COMMAND, ARGS…]` | `['sh', '-eu']` | Set command used to invoke recipes with empty `[script]` attribute. |
+diff --git a/src/analyzer.rs b/src/analyzer.rs
+index 2b1fa9dbc0..1125d29247 100644
+--- a/src/analyzer.rs
++++ b/src/analyzer.rs
+@@ -417,6 +417,24 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+       }));
+     }
+ 
++    if let Some(second) = Keyword::from_lexeme(set.name.lexeme()) {
++      let first = match second {
++        Keyword::NoCd => Keyword::WorkingDirectory,
++        Keyword::WorkingDirectory => Keyword::NoCd,
++        _ => {
++          return Ok(());
++        }
++      };
++
++      if let Some(conflict) = self.sets.get(first.lexeme()) {
++        return Err(set.name.error(NoCdAndWorkingDirectorySetting {
++          first,
++          first_line: conflict.name.line,
++          second,
++        }));
++      }
++    }
++
+     Ok(())
+   }
+ 
+diff --git a/src/compile_error.rs b/src/compile_error.rs
+index 823a682784..1dd15ed4f0 100644
+--- a/src/compile_error.rs
++++ b/src/compile_error.rs
+@@ -254,6 +254,17 @@ impl Display for CompileError<'_> {
+         f,
+         "recipe `{recipe}` has both `[no-cd]` and `[working-directory]` attributes"
+       ),
++      NoCdAndWorkingDirectorySetting {
++        first,
++        first_line,
++        second,
++      } => write!(
++        f,
++        "`{}` set on line {} is incompatible with `{}`",
++        first.lexeme(),
++        first_line.ordinal(),
++        second.lexeme()
++      ),
+       OptionNameContainsEqualSign { parameter } => {
+         write!(
+           f,
+diff --git a/src/compile_error_kind.rs b/src/compile_error_kind.rs
+index a65bf953bb..456778ba78 100644
+--- a/src/compile_error_kind.rs
++++ b/src/compile_error_kind.rs
+@@ -114,6 +114,11 @@ pub(crate) enum CompileErrorKind<'src> {
+   NoCdAndWorkingDirectoryAttribute {
+     recipe: &'src str,
+   },
++  NoCdAndWorkingDirectorySetting {
++    first: Keyword,
++    first_line: usize,
++    second: Keyword,
++  },
+   OptionNameContainsEqualSign {
+     parameter: String,
+   },
+diff --git a/src/evaluator.rs b/src/evaluator.rs
+index b950f816cf..cf2512306d 100644
+--- a/src/evaluator.rs
++++ b/src/evaluator.rs
+@@ -101,6 +101,9 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+         Setting::Lazy(value) => {
+           settings.lazy = value;
+         }
++        Setting::NoCd(value) => {
++          settings.no_cd = value;
++        }
+         Setting::NoExitMessage(value) => {
+           settings.no_exit_message = value;
+         }
+diff --git a/src/keyword.rs b/src/keyword.rs
+index b2b1d52967..7b75d0a3a3 100644
+--- a/src/keyword.rs
++++ b/src/keyword.rs
+@@ -24,6 +24,7 @@ pub(crate) enum Keyword {
+   Import,
+   Lazy,
+   Mod,
++  NoCd,
+   NoExitMessage,
+   PositionalArguments,
+   Quiet,
+diff --git a/src/node.rs b/src/node.rs
+index a60a80f661..188353014a 100644
+--- a/src/node.rs
++++ b/src/node.rs
+@@ -283,6 +283,7 @@ impl<'src> Node<'src> for Set<'src> {
+       | Setting::Guards(value)
+       | Setting::IgnoreComments(value)
+       | Setting::Lazy(value)
++      | Setting::NoCd(value)
+       | Setting::NoExitMessage(value)
+       | Setting::PositionalArguments(value)
+       | Setting::Quiet(value)
+diff --git a/src/parser.rs b/src/parser.rs
+index cdcbb17c9e..ec2456126d 100644
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -1416,6 +1416,7 @@ impl<'run, 'src> Parser<'run, 'src> {
+       Keyword::Guards => Some(Setting::Guards(self.parse_set_bool()?)),
+       Keyword::IgnoreComments => Some(Setting::IgnoreComments(self.parse_set_bool()?)),
+       Keyword::Lazy => Some(Setting::Lazy(self.parse_set_bool()?)),
++      Keyword::NoCd => Some(Setting::NoCd(self.parse_set_bool()?)),
+       Keyword::NoExitMessage => Some(Setting::NoExitMessage(self.parse_set_bool()?)),
+       Keyword::PositionalArguments => Some(Setting::PositionalArguments(self.parse_set_bool()?)),
+       Keyword::Quiet => Some(Setting::Quiet(self.parse_set_bool()?)),
+@@ -2650,6 +2651,12 @@ mod tests {
+     tree: (justfile (set quiet false)),
+   }
+ 
++  test! {
++    name: set_no_cd,
++    text: "set no-cd := true",
++    tree: (justfile (set no_cd true)),
++  }
++
+   test! {
+     name: set_positional_arguments_false,
+     text: "set positional-arguments := false",
+diff --git a/src/recipe.rs b/src/recipe.rs
+index 6e0eda3580..f897558d1a 100644
+--- a/src/recipe.rs
++++ b/src/recipe.rs
+@@ -169,8 +169,19 @@ impl<'src> Recipe<'src> {
+         .contains(AttributeDiscriminant::PositionalArguments)
+   }
+ 
+-  pub(crate) fn change_directory(&self) -> bool {
+-    !self.attributes.contains(AttributeDiscriminant::NoCd)
++  pub(crate) fn change_directory(&self, settings: &Settings) -> bool {
++    if self
++      .attributes
++      .contains(AttributeDiscriminant::WorkingDirectory)
++    {
++      return true;
++    }
++
++    if self.attributes.contains(AttributeDiscriminant::NoCd) {
++      return false;
++    }
++
++    !settings.no_cd
+   }
+ 
+   fn print_exit_message(&self, settings: &Settings) -> bool {
+@@ -186,7 +197,7 @@ impl<'src> Recipe<'src> {
+   }
+ 
+   fn working_directory<'a>(&'a self, context: &'a ExecutionContext) -> Option<PathBuf> {
+-    if !self.change_directory() {
++    if !self.change_directory(&context.module.settings) {
+       return None;
+     }
+ 
+diff --git a/src/setting.rs b/src/setting.rs
+index d0de410cbb..58c8ed10fb 100644
+--- a/src/setting.rs
++++ b/src/setting.rs
+@@ -14,6 +14,7 @@ pub(crate) enum Setting<'src> {
+   Guards(bool),
+   IgnoreComments(bool),
+   Lazy(bool),
++  NoCd(bool),
+   NoExitMessage(bool),
+   PositionalArguments(bool),
+   Quiet(bool),
+@@ -39,6 +40,7 @@ impl<'src> Setting<'src> {
+       | Self::Guards(value)
+       | Self::IgnoreComments(value)
+       | Self::Lazy(value)
++      | Self::NoCd(value)
+       | Self::NoExitMessage(value)
+       | Self::PositionalArguments(value)
+       | Self::Quiet(value)
+@@ -88,6 +90,7 @@ impl Display for Setting<'_> {
+       | Self::Guards(value)
+       | Self::IgnoreComments(value)
+       | Self::Lazy(value)
++      | Self::NoCd(value)
+       | Self::NoExitMessage(value)
+       | Self::PositionalArguments(value)
+       | Self::Quiet(value)
+diff --git a/src/settings.rs b/src/settings.rs
+index bdea9adda8..460061b160 100644
+--- a/src/settings.rs
++++ b/src/settings.rs
+@@ -19,6 +19,7 @@ pub(crate) struct Settings {
+   pub(crate) guards: bool,
+   pub(crate) ignore_comments: bool,
+   pub(crate) lazy: bool,
++  pub(crate) no_cd: bool,
+   pub(crate) no_exit_message: bool,
+   pub(crate) positional_arguments: bool,
+   pub(crate) quiet: bool,
+diff --git a/tests/json.rs b/tests/json.rs
+index 3702c28d94..ad7ae55e84 100644
+--- a/tests/json.rs
++++ b/tests/json.rs
+@@ -94,6 +94,7 @@ struct Settings<'a> {
+   guards: bool,
+   ignore_comments: bool,
+   lazy: bool,
++  no_cd: bool,
+   no_exit_message: bool,
+   positional_arguments: bool,
+   quiet: bool,
+diff --git a/tests/modules.rs b/tests/modules.rs
+index bf76b4f9df..af746534a0 100644
+--- a/tests/modules.rs
++++ b/tests/modules.rs
+@@ -215,6 +215,28 @@ foo:
+     .failure();
+ }
+ 
++#[test]
++fn submodules_do_not_inherit_no_cd_setting() {
++  Test::new()
++    .write(
++      "foo/mod.just",
++      "bar:
++  @cat data.txt
++",
++    )
++    .write("foo/data.txt", "MODULE\n")
++    .justfile(
++      "
++        set no-cd := true
++
++        mod foo
++      ",
++    )
++    .args(["foo", "bar"])
++    .stdout("MODULE\n")
++    .success();
++}
++
+ #[test]
+ fn modules_conflict_with_recipes() {
+   Test::new()
+diff --git a/tests/no_cd.rs b/tests/no_cd.rs
+index d389359b46..1df3336193 100644
+--- a/tests/no_cd.rs
++++ b/tests/no_cd.rs
+@@ -41,3 +41,64 @@ fn shebang() {
+     .stdout("hello")
+     .success();
+ }
++
++#[test]
++fn setting_applies_to_recipes() {
++  Test::new()
++    .justfile(
++      "
++        set no-cd := true
++
++        foo:
++          cat bar
++      ",
++    )
++    .current_dir("child")
++    .tree(tree! {
++      bar: "root",
++      child: {
++        bar: "child",
++      }
++    })
++    .stderr("cat bar\n")
++    .stdout("child")
++    .success();
++}
++
++#[test]
++fn working_directory_attribute_overrides_setting() {
++  Test::new()
++    .justfile(
++      "
++        set no-cd := true
++
++        [working-directory('workspace')]
++        foo:
++          cat data.txt
++      ",
++    )
++    .write("workspace/data.txt", "WORKSPACE")
++    .stderr("cat data.txt\n")
++    .stdout("WORKSPACE")
++    .success();
++}
++
++#[test]
++fn evaluator_paths_ignore_setting() {
++  Test::new()
++    .justfile(
++      "
++        set no-cd := true
++
++        file := `cat data.txt`
++
++        @foo:
++          echo {{file}}
++      ",
++    )
++    .current_dir("inv")
++    .write("data.txt", "MODULE")
++    .write("inv/data.txt", "INVOCATION")
++    .stdout("MODULE\n")
++    .success();
++}
+diff --git a/tests/settings.rs b/tests/settings.rs
+index 647a8e6927..80eaa662a2 100644
+--- a/tests/settings.rs
++++ b/tests/settings.rs
+@@ -261,6 +261,27 @@ fn variable() {
+     .success();
+ }
+ 
++#[test]
++fn no_cd_setting_conflicts_with_working_directory_setting() {
++  Test::new()
++    .justfile(
++      "
++        set no-cd := true
++        set working-directory := 'bar'
++      ",
++    )
++    .stderr(
++      "
++        error: `no-cd` set on line 1 is incompatible with `working-directory`
++         ——▶ justfile:2:5
++          │
++        2 │ set working-directory := 'bar'
++          │     ^^^^^^^^^^^^^^^^^
++      ",
++    )
++    .failure();
++}
++
+ #[test]
+ fn unused_non_const_assignments() {
+   Test::new()
+diff --git a/tests/working_directory.rs b/tests/working_directory.rs
+index f5473df806..ff94bb36be 100644
+--- a/tests/working_directory.rs
++++ b/tests/working_directory.rs
+@@ -235,6 +235,27 @@ fn no_cd_overrides_setting() {
+     .success();
+ }
+ 
++#[test]
++fn working_directory_setting_conflicts_with_no_cd_setting() {
++  Test::new()
++    .justfile(
++      "
++      set working-directory := 'bar'
++      set no-cd := true
++    ",
++    )
++    .stderr(
++      "
++        error: `working-directory` set on line 1 is incompatible with `no-cd`
++         ——▶ justfile:2:5
++          │
++        2 │ set no-cd := true
++          │     ^^^^^
++      ",
++    )
++    .failure();
++}
++
+ #[test]
+ fn working_dir_in_submodule_is_relative_to_module_path() {
+   Test::new()

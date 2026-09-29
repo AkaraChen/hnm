@@ -1,0 +1,19 @@
+{
+  "id": "2990",
+  "title": "Shell-compatible --evaluate output",
+  "base": "e67c8f33f0b16c7ae67dca662c72862e810ed8ff",
+  "opening": "我想让 `just --evaluate` 能输出可以直接被 shell `eval` 的格式。现在它输出的是 `VAR := \"foo\"` 这种 just 语法，我得用 sed 转一下才能 `eval $(just --evaluate)`。我有些 justfile 专门用来集中定义仓库级的变量，希望能直接接到 direnv 之类的工具里。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "decisions": [
+    "新增 --evaluate-format 选项，取值 just（默认）与 shell",
+    "取值名为 shell",
+    "shell 格式为 name=\"value\" 每行一个",
+    "特殊字符转义以保证 eval 还原",
+    "export 变量带 export 前缀，set export 时全部带",
+    "只做 POSIX shell 一种格式"
+  ],
+  "non_goals": [
+    "fish/PowerShell 等其它 shell 格式",
+    "--shell 专用开关"
+  ],
+  "brief": "你是just 的维护者兼这个需求的提出者。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 做成新选项 `--evaluate-format <FORMAT>`，取值 `just`（默认，保持现有输出）和 `shell`；留出以后支持其它格式的空间，不做 `--shell` 这类专用开关。\n2. 取值名字叫 `shell`，不叫 `sh`/`bash`。\n3. shell 格式输出 `name=\"value\"`，每行一个，变量顺序与现有 `--evaluate` 一致。\n4. 值里的特殊字符（`!`、`\"`、`$`、反引号、反斜杠）要转义，保证 eval 后得到原值。\n5. justfile 里 `export` 的变量输出为 `export name=\"value\"`；开启 `set export` 时所有变量都带 `export`。\n6. 这次只做一种 POSIX 风格的 shell 格式，不针对 fish/PowerShell。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。"
+}

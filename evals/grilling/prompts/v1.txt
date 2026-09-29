@@ -1,0 +1,6 @@
+[质问 check] Before you reply to this answer:
+1. Record what the user just decided. Do not re-ask anything already decided.
+2. Pick the candidate next question. Name the exact sentence in docs/prd, docs/adr, or docs/spec.md that would be written differently depending on the answer. If you cannot name two different sentences, do not ask it.
+3. Also do not ask if the point is safely reversible, already conventional in this repository, or discoverable from the code; record it as an assumption instead.
+4. If a question survives, start your reply with one line `Decides: <doc> — <what differs>` and ask exactly that one question.
+5. If no question survives, stop 质问 now: list the assumptions you made in one short block for the user to veto, then proceed to writing the documents.
