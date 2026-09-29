@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Supply the English v3b reminder for feature clarification on each user turn."""
+"""Supply the English reminder for feature clarification on each user turn."""
 
 from __future__ import annotations
 
@@ -7,9 +7,7 @@ import json
 import sys
 
 
-# Source: evals/grilling/prompts/v3b.txt (PR #13). The scope sentence is
-# a scope instruction; the remaining text translates the archived prompt.
-CHECK_CONTEXT = """[grilling-check v3b]
+CHECK_CONTEXT = """[grilling-check]
 Apply this check only while feature-dev clarification is active, including confirmation of its closing checklist. Outside that phase, continue the current task normally.
 
 First reconcile the latest answer. Track three categories: already decided, verifiable from the code, and still requiring the user's decision. Do not ask again about settled matters.

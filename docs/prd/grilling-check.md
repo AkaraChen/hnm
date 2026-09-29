@@ -2,12 +2,12 @@
 
 ## Status and scope
 
-Accepted: install the English translation of the modified third version (v3b)
-from PR #13 for users of the feature-dev workflow.
+Accepted: install an English clarification reminder for users of the feature-dev
+workflow.
 
 ## Requirements
 
-On each user turn, remind the agent to apply v3b only while clarifying a feature.
+On each user turn, remind the agent to apply the check only while clarifying a feature.
 Track settled decisions, repository facts, and decisions requiring user input;
 ask only the most consequential unresolved question. Important observable
 behavior must not be skipped merely because it is reversible. Once material
@@ -27,5 +27,5 @@ then write PRD, ADR, and spec after confirmation. Respect prior delegation.
 
 ## Non-goals
 
-No new model evaluation, transcript classifier, persistent session state, changes
-to the archived prompts, or runtime-independent enforcement of model behavior.
+No transcript classifier, persistent session state, or runtime-independent
+enforcement of model behavior.

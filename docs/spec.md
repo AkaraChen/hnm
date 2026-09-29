@@ -82,7 +82,7 @@ The installed `feature-dev` skill, `git-commit` skill, and `spec_doc_review` hoo
 ### Clarification reminder
 
 The harness registers an advisory `UserPromptSubmit` hook in both runtime
-configurations. Each user turn receives an English v3b reminder, explicitly scoped
+configurations. Each user turn receives an English reminder, explicitly scoped
 to active feature-dev clarification. It respects settled decisions and delegated
 authority, asks only material questions requiring user input, and requests a short
 contract confirmation before writing PRD, ADR, and spec. Existing PRDs and missing

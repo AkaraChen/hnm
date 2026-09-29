@@ -26,7 +26,7 @@ class GrillingHookTests(unittest.TestCase):
         self.assertEqual(set(event), {'hookEventName', 'additionalContext'})
         self.assertEqual(event['hookEventName'], 'UserPromptSubmit')
         self.assertTrue(event['additionalContext'].isascii())
-        self.assertIn('[grilling-check v3b]', event['additionalContext'])
+        self.assertIn('[grilling-check]', event['additionalContext'])
 
     def test_invalid_input_and_unrelated_events_are_noops(self):
         for raw in ['', '{', 'null', '[]', '1', '{}',

@@ -143,7 +143,7 @@ include `.gitkeep`. See the [complete generated layout](docs/spec.md#generated-h
   and `docs/spec.md` holds shared contracts.
 - **Review docs before committing.** `AGENTS.md`, `$git-commit`, and Claude/Codex
   hooks connect documentation review to commits in runtimes that load them.
-  The English v3b grilling reminder supplies context on each user turn, scoped to
+  The English grilling reminder supplies context on each user turn, scoped to
   active feature-dev clarification. It respects settled decisions and delegated
   authority; it is advisory rather than a permission gate.
   The installed hooks require Python 3 (`/usr/bin/python3` in the bundled
