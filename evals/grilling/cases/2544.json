@@ -1,0 +1,18 @@
+{
+  "id": "2544",
+  "title": "Guard sigil",
+  "base": "312bff4e65d3bbab7b4218600770fc9a11056ddd",
+  "opening": "just 现在有 `@` 和 `-` 两个行前缀。我想加一个“守卫”前缀：某一行命令失败时，只停止当前这个 recipe，而不是让整个 just 运行失败。比如 recipe 只在环境变量 FOO=yes 时才继续执行后面的行。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "decisions": [
+    "前缀符号 ?",
+    "需要 set guards 才生效，否则 ? 原样当命令",
+    "退出码 0 继续，1 停止当前 recipe 但运行整体继续",
+    "退出码 >1 保留并报错",
+    "? 可与 @ 组合，不可与 - 组合",
+    "只作用于 linewise recipe"
+  ],
+  "non_goals": [
+    "不经过 shell 的表达式守卫"
+  ],
+  "brief": "你是just 的维护者兼这个需求的提出者。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 前缀符号用 `?`，写在行首，例如 `?[[ $FOO == yes ]]`。\n2. 因为可能不兼容，需要 `set guards` 才生效；没设置时 `?` 不做特殊处理，原样当作命令的一部分。\n3. 守卫行退出码 0：继续执行；退出码 1：停止当前 recipe，但其它 recipe（包括依赖它的后续流程）照常继续，整体不算失败。\n4. 退出码大于 1 保留给以后使用，出现时报错（例如 `Guard line in recipe foo on line N returned reserved exit code 2`）。\n5. `?` 可以和 `@` 组合，但不能和 `-` 组合，同时出现要报错。\n6. 只作用于 linewise recipe，不管 shebang/script recipe。\n7. 这次不做“不经过 shell 的 just 表达式守卫”（如 `?{{ assert(...) }}`）。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。"
+}

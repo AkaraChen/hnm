@@ -1,0 +1,1487 @@
+diff --git a/README.md b/README.md
+index cdfd001b4c..ee747a7200 100644
+--- a/README.md
++++ b/README.md
+@@ -2577,6 +2577,10 @@ $ just --set os bsd
+ ./test --test bsd
+ ```
+ 
++Variables in submodules can be overridden using the `::`-separated path to the
++variable. A variable named `bar` in a submodule named `foo` may be overridden
++with `foo::bar=VALUE` or `--set foo::bar VALUE`.
++
+ ### Getting and Setting Environment Variables
+ 
+ #### Exporting `just` Variables
+diff --git a/src/analyzer.rs b/src/analyzer.rs
+index 831842f8f7..beab418244 100644
+--- a/src/analyzer.rs
++++ b/src/analyzer.rs
+@@ -19,12 +19,13 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+     groups: &[StringLiteral<'src>],
+     loaded: &[PathBuf],
+     name: Option<Name<'src>>,
++    overrides: &mut HashMap<Number, String>,
+     paths: &HashMap<PathBuf, PathBuf>,
+     private: bool,
+     root: &Path,
+   ) -> RunResult<'src, Justfile<'src>> {
+     Self::default().justfile(
+-      asts, config, doc, groups, loaded, name, paths, root, private,
++      asts, config, doc, groups, loaded, name, overrides, paths, private, root,
+     )
+   }
+ 
+@@ -36,9 +37,10 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+     groups: &[StringLiteral<'src>],
+     loaded: &[PathBuf],
+     name: Option<Name<'src>>,
++    overrides: &mut HashMap<Number, String>,
+     paths: &HashMap<PathBuf, PathBuf>,
+-    root: &Path,
+     private: bool,
++    root: &Path,
+   ) -> RunResult<'src, Justfile<'src>> {
+     let mut definitions = HashMap::new();
+     let mut imports = HashSet::new();
+@@ -85,6 +87,7 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+                 groups.as_slice(),
+                 loaded,
+                 Some(*name),
++                overrides,
+                 paths,
+                 *private,
+                 absolute,
+@@ -159,8 +162,36 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+       }
+     }
+ 
++    let mut unknown_overrides = Vec::new();
++
++    for ((path, name), value) in &config.overrides {
++      if *path == ast.modulepath {
++        if let Some(assignment) = assignments.get(name) {
++          overrides.insert(assignment.number, value.clone());
++        } else {
++          unknown_overrides.push(if path.is_empty() {
++            name.into()
++          } else {
++            format!("{path}::{name}")
++          });
++        }
++      } else if path.starts_with(&ast.modulepath)
++        && !self
++          .modules
++          .contains_key(&path.path[ast.modulepath.path.len()])
++      {
++        unknown_overrides.push(format!("{path}::{name}"));
++      }
++    }
++
++    if !unknown_overrides.is_empty() {
++      return Err(Error::UnknownOverrides {
++        overrides: unknown_overrides,
++      });
++    }
++
+     let settings =
+-      Evaluator::evaluate_settings(&assignments, config, name, self.sets, &Scope::root())?;
++      Evaluator::evaluate_settings(&assignments, overrides, &Scope::root(), self.sets)?;
+ 
+     let mut deduplicated_recipes = Table::<'src, UnresolvedRecipe<'src>>::default();
+     for recipe in self.recipes {
+@@ -198,7 +229,7 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+ 
+     let recipes = RecipeResolver::resolve_recipes(
+       &assignments,
+-      &ast.module_path,
++      &ast.modulepath,
+       &self.modules,
+       &settings,
+       deduplicated_recipes,
+@@ -251,7 +282,7 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+       doc: doc.filter(|doc| !doc.is_empty()),
+       groups: groups.into(),
+       loaded: loaded.into(),
+-      module_path: ast.module_path.clone(),
++      modulepath: ast.modulepath.clone(),
+       modules: self.modules,
+       name,
+       private,
+diff --git a/src/ast.rs b/src/ast.rs
+index 9d20867024..34d6cd2cac 100644
+--- a/src/ast.rs
++++ b/src/ast.rs
+@@ -6,7 +6,7 @@ use super::*;
+ #[derive(Debug, Clone)]
+ pub(crate) struct Ast<'src> {
+   pub(crate) items: Vec<Item<'src>>,
+-  pub(crate) module_path: String,
++  pub(crate) modulepath: Modulepath,
+   pub(crate) unstable_features: BTreeSet<UnstableFeature>,
+   pub(crate) warnings: Vec<Warning>,
+   pub(crate) working_directory: PathBuf,
+diff --git a/src/compilation.rs b/src/compilation.rs
+index dd600baef0..341b77fae1 100644
+--- a/src/compilation.rs
++++ b/src/compilation.rs
+@@ -4,6 +4,7 @@ use super::*;
+ pub(crate) struct Compilation<'src> {
+   pub(crate) asts: HashMap<PathBuf, Ast<'src>>,
+   pub(crate) justfile: Justfile<'src>,
++  pub(crate) overrides: HashMap<Number, String>,
+   pub(crate) root: PathBuf,
+ }
+ 
+diff --git a/src/compiler.rs b/src/compiler.rs
+index 0476f8196a..427959c719 100644
+--- a/src/compiler.rs
++++ b/src/compiler.rs
+@@ -91,11 +91,25 @@ impl Compiler {
+       asts.insert(current.path, ast.clone());
+     }
+ 
+-    let justfile = Analyzer::analyze(&asts, config, None, &[], &loaded, None, &paths, false, root)?;
++    let mut overrides = HashMap::new();
++
++    let justfile = Analyzer::analyze(
++      &asts,
++      config,
++      None,
++      &[],
++      &loaded,
++      None,
++      &mut overrides,
++      &paths,
++      false,
++      root,
++    )?;
+ 
+     Ok(Compilation {
+       asts,
+       justfile,
++      overrides,
+       root: root.into(),
+     })
+   }
+@@ -222,6 +236,7 @@ impl Compiler {
+       &[],
+       &[],
+       None,
++      &mut HashMap::new(),
+       &paths,
+       false,
+       &root,
+diff --git a/src/config.rs b/src/config.rs
+index 2f59d52d5d..1e38d2a6a2 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -34,7 +34,7 @@ pub(crate) struct Config {
+   pub(crate) no_aliases: bool,
+   pub(crate) no_dependencies: bool,
+   pub(crate) one: bool,
+-  pub(crate) overrides: BTreeMap<String, String>,
++  pub(crate) overrides: BTreeMap<(Modulepath, String), String>,
+   pub(crate) search_config: SearchConfig,
+   pub(crate) shell: Option<String>,
+   pub(crate) shell_args: Option<Vec<String>>,
+@@ -646,7 +646,7 @@ impl Config {
+       )
+   }
+ 
+-  fn parse_module_path(values: ValuesRef<String>) -> ConfigResult<ModulePath> {
++  fn parse_modulepath(values: ValuesRef<String>) -> ConfigResult<Modulepath> {
+     let path = values.clone().map(|s| (*s).as_str()).collect::<Vec<&str>>();
+ 
+     let path = if path.len() == 1 && path[0].contains(' ') {
+@@ -704,11 +704,20 @@ impl Config {
+     })
+   }
+ 
++  fn parse_override(path: &str) -> ConfigResult<(Modulepath, String)> {
++    let mut path = Modulepath::try_from([path].as_slice())
++      .map_err(|()| ConfigError::OverridePath { path: path.into() })?;
++
++    let name = path.path.pop().unwrap();
++
++    Ok((path, name))
++  }
++
+   pub(crate) fn from_matches(matches: &ArgMatches) -> ConfigResult<Self> {
+     let mut overrides = BTreeMap::new();
+     if let Some(mut values) = matches.get_many::<String>(arg::SET) {
+-      while let (Some(k), Some(v)) = (values.next(), values.next()) {
+-        overrides.insert(k.into(), v.into());
++      while let Some(path) = values.next() {
++        overrides.insert(Self::parse_override(path)?, values.next().unwrap().into());
+       }
+     }
+ 
+@@ -718,12 +727,25 @@ impl Config {
+         .map(|s| s.map(String::as_str)),
+     );
+ 
+-    for (name, value) in &positional.overrides {
+-      overrides.insert(name.clone(), value.clone());
++    for (path, value) in &positional.overrides {
++      overrides.insert(Self::parse_override(path)?, value.into());
+     }
+ 
+     let search_config = Self::search_config(matches, &positional)?;
+ 
++    let format_overrides = || {
++      overrides
++        .iter()
++        .map(|((path, key), value)| {
++          if path.is_empty() {
++            format!("{key}={value}")
++          } else {
++            format!("{path}::{key}={value}")
++          }
++        })
++        .collect()
++    };
++
+     for subcommand in cmd::ARGLESS {
+       if matches.get_flag(subcommand) {
+         match (!overrides.is_empty(), !positional.arguments.is_empty()) {
+@@ -731,7 +753,7 @@ impl Config {
+           (true, false) => {
+             return Err(ConfigError::SubcommandOverrides {
+               subcommand,
+-              overrides,
++              overrides: format_overrides(),
+             });
+           }
+           (false, true) => {
+@@ -744,7 +766,7 @@ impl Config {
+             return Err(ConfigError::SubcommandOverridesAndArguments {
+               arguments: positional.arguments,
+               subcommand,
+-              overrides,
++              overrides: format_overrides(),
+             });
+           }
+         }
+@@ -798,7 +820,7 @@ impl Config {
+       }
+     } else if let Some(path) = matches.get_many::<String>(cmd::LIST) {
+       Subcommand::List {
+-        path: Self::parse_module_path(path)?,
++        path: Self::parse_modulepath(path)?,
+       }
+     } else if matches.get_flag(cmd::MAN) {
+       Subcommand::Man
+@@ -809,13 +831,13 @@ impl Config {
+       }
+     } else if let Some(path) = matches.get_many::<String>(cmd::SHOW) {
+       Subcommand::Show {
+-        path: Self::parse_module_path(path)?,
++        path: Self::parse_modulepath(path)?,
+       }
+     } else if matches.get_flag(cmd::SUMMARY) {
+       Subcommand::Summary
+     } else if let Some(path) = matches.get_many::<String>(cmd::USAGE) {
+       Subcommand::Usage {
+-        path: Self::parse_module_path(path)?,
++        path: Self::parse_modulepath(path)?,
+       }
+     } else if matches.get_flag(cmd::VARIABLES) {
+       Subcommand::Variables
+@@ -1042,9 +1064,9 @@ mod tests {
+       $($key:literal : $value:literal),* $(,)?
+     } => {
+       {
+-        let mut map: BTreeMap<String, String> = BTreeMap::new();
++        let mut map: BTreeMap<(Modulepath, String), String> = BTreeMap::new();
+         $(
+-          map.insert($key.to_owned(), $value.to_owned());
++          map.insert((Modulepath::default(), $key.to_owned()), $value.to_owned());
+         )*
+         map
+       }
+@@ -1421,38 +1443,38 @@ mod tests {
+   test! {
+     name: subcommand_list_long,
+     args: ["--list"],
+-    subcommand: Subcommand::List{ path: ModulePath { path: Vec::new(), spaced: false } },
++    subcommand: Subcommand::List{ path: Modulepath { path: Vec::new(), spaced: false } },
+   }
+ 
+   test! {
+     name: subcommand_list_short,
+     args: ["-l"],
+-    subcommand: Subcommand::List{ path: ModulePath { path: Vec::new(), spaced: false } },
++    subcommand: Subcommand::List{ path: Modulepath { path: Vec::new(), spaced: false } },
+   }
+ 
+   test! {
+     name: subcommand_list_arguments,
+     args: ["--list", "bar"],
+-    subcommand: Subcommand::List{ path: ModulePath { path: vec!["bar".into()], spaced: false } },
++    subcommand: Subcommand::List{ path: Modulepath { path: vec!["bar".into()], spaced: false } },
+   }
+ 
+   test! {
+     name: subcommand_show_long,
+     args: ["--show", "build"],
+-    subcommand: Subcommand::Show { path: ModulePath { path: vec!["build".into()], spaced: false } },
++    subcommand: Subcommand::Show { path: Modulepath { path: vec!["build".into()], spaced: false } },
+   }
+ 
+   test! {
+     name: subcommand_show_short,
+     args: ["-s", "build"],
+-    subcommand: Subcommand::Show { path: ModulePath { path: vec!["build".into()], spaced: false } },
++    subcommand: Subcommand::Show { path: Modulepath { path: vec!["build".into()], spaced: false } },
+   }
+ 
+   test! {
+     name: subcommand_show_multiple_args,
+     args: ["--show", "foo", "bar"],
+     subcommand: Subcommand::Show {
+-      path: ModulePath {
++      path: Modulepath {
+         path: vec!["foo".into(), "bar".into()],
+         spaced: true,
+       },
+@@ -1475,15 +1497,6 @@ mod tests {
+     },
+   }
+ 
+-  test! {
+-    name: arguments_leading_equals,
+-    args: ["=foo"],
+-    overrides: map!{},
+-    subcommand: Subcommand::Run {
+-      arguments: vec!["=foo".to_owned()],
+-    },
+-  }
+-
+   test! {
+     name: overrides,
+     args: ["foo=bar", "bar=baz"],
+@@ -1763,7 +1776,7 @@ mod tests {
+     error: ConfigError::SubcommandOverridesAndArguments { subcommand, arguments, overrides },
+     check: {
+       assert_eq!(subcommand, cmd::SUMMARY);
+-      assert_eq!(overrides, map!{"bar": "baz"});
++      assert_eq!(overrides, vec!["bar=baz"]);
+       assert_eq!(arguments, &["bar"]);
+     },
+   }
+@@ -1774,7 +1787,7 @@ mod tests {
+     error: ConfigError::SubcommandOverrides { subcommand, overrides },
+     check: {
+       assert_eq!(subcommand, cmd::SUMMARY);
+-      assert_eq!(overrides, map!{"bar": "baz"});
++      assert_eq!(overrides, vec!["bar=baz"]);
+     },
+   }
+ }
+diff --git a/src/config_error.rs b/src/config_error.rs
+index 3023346386..a7950cd677 100644
+--- a/src/config_error.rs
++++ b/src/config_error.rs
+@@ -12,6 +12,8 @@ pub(crate) enum ConfigError {
+   Internal { message: String },
+   #[snafu(display("Invalid module path `{}`", path.join(" ")))]
+   ModulePath { path: Vec<String> },
++  #[snafu(display("Invalid override path `{path}`"))]
++  OverridePath { path: String },
+   #[snafu(display("Failed to parse request: {source}"))]
+   RequestParse { source: serde_json::Error },
+   #[snafu(display(
+@@ -31,21 +33,21 @@ pub(crate) enum ConfigError {
+   #[snafu(display(
+       "`--{}` used with unexpected overrides: {}",
+       subcommand.to_lowercase(),
+-      List::and_ticked(overrides.iter().map(|(key, value)| format!("{key}={value}"))),
++      List::and_ticked(overrides.iter()),
+   ))]
+   SubcommandOverrides {
+     subcommand: &'static str,
+-    overrides: BTreeMap<String, String>,
++    overrides: Vec<String>,
+   },
+   #[snafu(display(
+       "`--{}` used with unexpected overrides: {}; and arguments: {}",
+       subcommand.to_lowercase(),
+-      List::and_ticked(overrides.iter().map(|(key, value)| format!("{key}={value}"))),
++      List::and_ticked(overrides.iter()),
+       List::and_ticked(arguments)))
+   ]
+   SubcommandOverridesAndArguments {
+     subcommand: &'static str,
+-    overrides: BTreeMap<String, String>,
++    overrides: Vec<String>,
+     arguments: Vec<String>,
+   },
+ }
+diff --git a/src/error.rs b/src/error.rs
+index 67a92da46e..4f043a847e 100644
+--- a/src/error.rs
++++ b/src/error.rs
+@@ -815,7 +815,7 @@ impl ColorDisplay for Error<'_> {
+ 
+     if let PositionalArgumentCountMismatch { recipe, .. } = self {
+       writeln!(f)?;
+-      let path = ModulePath::try_from([recipe.name()].as_slice()).unwrap();
++      let path = Modulepath::try_from([recipe.name()].as_slice()).unwrap();
+       write!(
+         f,
+         "{}",
+diff --git a/src/evaluator.rs b/src/evaluator.rs
+index c21e13fc83..fc2e437a18 100644
+--- a/src/evaluator.rs
++++ b/src/evaluator.rs
+@@ -6,6 +6,7 @@ pub(crate) struct Evaluator<'src: 'run, 'run> {
+   env: BTreeMap<String, String>,
+   is_dependency: bool,
+   non_const_assignments: Table<'src, Name<'src>>,
++  overrides: &'run HashMap<Number, String>,
+   scope: Scope<'src, 'run>,
+ }
+ 
+@@ -19,47 +20,18 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+ 
+   pub(crate) fn evaluate_settings(
+     assignments: &'run Table<'src, Assignment<'src>>,
+-    config: &Config,
+-    name: Option<Name>,
+-    sets: Table<'src, Set<'src>>,
++    overrides: &'run HashMap<Number, String>,
+     scope: &'run Scope<'src, 'run>,
++    sets: Table<'src, Set<'src>>,
+   ) -> RunResult<'src, Settings> {
+-    let mut scope = scope.child();
+-
+-    if name.is_none() {
+-      let mut unknown_overrides = Vec::new();
+-
+-      for (name, value) in &config.overrides {
+-        if let Some(assignment) = assignments.get(name) {
+-          scope.bind(Binding {
+-            eager: assignment.eager,
+-            export: assignment.export,
+-            file_depth: 0,
+-            name: assignment.name,
+-            number: assignment.number,
+-            prelude: false,
+-            private: assignment.private,
+-            value: value.clone(),
+-          });
+-        } else {
+-          unknown_overrides.push(name.clone());
+-        }
+-      }
+-
+-      if !unknown_overrides.is_empty() {
+-        return Err(Error::UnknownOverrides {
+-          overrides: unknown_overrides,
+-        });
+-      }
+-    }
+-
+     let mut evaluator = Self {
+       assignments: Some(assignments),
+       context: None,
+       env: BTreeMap::new(),
+       is_dependency: false,
+       non_const_assignments: Table::new(),
+-      scope,
++      overrides,
++      scope: scope.child(),
+     };
+ 
+     for assignment in assignments.values() {
+@@ -168,6 +140,7 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+     config: &'run Config,
+     dotenv: &'run BTreeMap<String, String>,
+     module: &'run Justfile<'src>,
++    overrides: &'run HashMap<Number, String>,
+     parent: &'run Scope<'src, 'run>,
+     search: &'run Search,
+     variable_references: Option<&HashSet<Number>>,
+@@ -182,31 +155,14 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+       search,
+     };
+ 
+-    let mut scope = parent.child();
+-
+-    if !module.is_submodule() {
+-      for (name, value) in &config.overrides {
+-        let assignment = module.assignments.get(name).unwrap();
+-        scope.bind(Binding {
+-          eager: assignment.eager,
+-          export: assignment.export,
+-          file_depth: 0,
+-          name: assignment.name,
+-          number: assignment.number,
+-          prelude: false,
+-          private: assignment.private,
+-          value: value.clone(),
+-        });
+-      }
+-    }
+-
+     let mut evaluator = Self {
+       assignments: Some(&module.assignments),
+       context: Some(context),
+       env: BTreeMap::new(),
+       is_dependency: false,
+       non_const_assignments: Table::new(),
+-      scope,
++      overrides,
++      scope: parent.child(),
+     };
+ 
+     for assignment in module.assignments.values() {
+@@ -227,7 +183,12 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+     let name = assignment.name.lexeme();
+ 
+     if !self.scope.bound(name) {
+-      let value = self.evaluate_expression(&assignment.value)?;
++      let value = if let Some(value) = self.overrides.get(&assignment.number) {
++        value.clone()
++      } else {
++        self.evaluate_expression(&assignment.value)?
++      };
++
+       self.scope.bind(Binding {
+         eager: assignment.eager,
+         export: assignment.export
+@@ -588,12 +549,14 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+     is_dependency: bool,
+     scope: &'run Scope<'src, 'run>,
+   ) -> Self {
++    static OVERRIDES: LazyLock<HashMap<Number, String>> = LazyLock::new(HashMap::new);
+     Self {
+       assignments: None,
+       context: Some(*context),
+       env,
+       is_dependency,
+       non_const_assignments: Table::new(),
++      overrides: &OVERRIDES,
+       scope: scope.child(),
+     }
+   }
+diff --git a/src/invocation_parser.rs b/src/invocation_parser.rs
+index 12afc1fff5..cec2701fc2 100644
+--- a/src/invocation_parser.rs
++++ b/src/invocation_parser.rs
+@@ -50,12 +50,12 @@ impl<'src: 'run, 'run> InvocationParser<'src, 'run> {
+   fn parse_invocation(&mut self) -> RunResult<'src, Invocation<'src, 'run>> {
+     let recipe = if let Some(next) = self.next() {
+       if next.contains(':') {
+-        let module_path =
+-          ModulePath::try_from([next].as_slice()).map_err(|()| Error::UnknownRecipe {
++        let modulepath =
++          Modulepath::try_from([next].as_slice()).map_err(|()| Error::UnknownRecipe {
+             recipe: next.into(),
+             suggestion: None,
+           })?;
+-        let (recipe, _) = self.resolve_recipe(true, &module_path.path)?;
++        let (recipe, _) = self.resolve_recipe(true, &modulepath.path)?;
+         self.next += 1;
+         recipe
+       } else {
+@@ -248,7 +248,7 @@ impl<'src: 'run, 'run> InvocationParser<'src, 'run> {
+ 
+   fn resolve_recipe(
+     &self,
+-    module_path: bool,
++    modulepath: bool,
+     args: &[impl AsRef<str>],
+   ) -> RunResult<'src, (&'run Recipe<'src>, usize)> {
+     let mut current = self.root;
+@@ -262,21 +262,21 @@ impl<'src: 'run, 'run> InvocationParser<'src, 'run> {
+       if let Some(module) = current.modules.get(arg) {
+         current = module;
+       } else if let Some(recipe) = current.get_recipe(arg) {
+-        if module_path && i + 1 < args.len() {
++        if modulepath && i + 1 < args.len() {
+           return Err(Error::ExpectedSubmoduleButFoundRecipe {
+             path: path.join("::"),
+           });
+         }
+         return Ok((recipe, i + 1));
+       } else {
+-        if module_path && i + 1 < args.len() {
++        if modulepath && i + 1 < args.len() {
+           return Err(Error::UnknownSubmodule {
+             path: path.join("::"),
+           });
+         }
+ 
+         return Err(Error::UnknownRecipe {
+-          recipe: if module_path {
++          recipe: if modulepath {
+             path.join("::")
+           } else {
+             path.join(" ")
+@@ -328,7 +328,7 @@ mod tests {
+     let invocations = InvocationParser::parse_invocations(&justfile, &["foo"]).unwrap();
+ 
+     assert_eq!(invocations.len(), 1);
+-    assert_eq!(invocations[0].recipe.namepath(), "foo");
++    assert_eq!(invocations[0].recipe.recipe_path().to_string(), "foo");
+     assert!(invocations[0].arguments.is_empty());
+   }
+ 
+@@ -339,7 +339,7 @@ mod tests {
+     let invocations = InvocationParser::parse_invocations(&justfile, &["foo", "baz"]).unwrap();
+ 
+     assert_eq!(invocations.len(), 1);
+-    assert_eq!(invocations[0].recipe.namepath(), "foo");
++    assert_eq!(invocations[0].recipe.recipe_path().to_string(), "foo");
+     assert_eq!(invocations[0].arguments, vec![vec![String::from("baz")]]);
+   }
+ 
+@@ -399,7 +399,7 @@ mod tests {
+       InvocationParser::parse_invocations(&compilation.justfile, &["foo", "bar"]).unwrap();
+ 
+     assert_eq!(invocations.len(), 1);
+-    assert_eq!(invocations[0].recipe.namepath(), "foo::bar");
++    assert_eq!(invocations[0].recipe.recipe_path().to_string(), "foo::bar");
+     assert!(invocations[0].arguments.is_empty());
+   }
+ 
+@@ -550,14 +550,14 @@ BAZ +Z:
+     .unwrap();
+ 
+     assert_eq!(invocations.len(), 3);
+-    assert_eq!(invocations[0].recipe.namepath(), "BAR");
++    assert_eq!(invocations[0].recipe.recipe_path().to_string(), "BAR");
+     assert_eq!(invocations[0].arguments, vec![vec![String::from("0")]]);
+-    assert_eq!(invocations[1].recipe.namepath(), "FOO");
++    assert_eq!(invocations[1].recipe.recipe_path().to_string(), "FOO");
+     assert_eq!(
+       invocations[1].arguments,
+       vec![vec![String::from("1")], vec![String::from("2")]]
+     );
+-    assert_eq!(invocations[2].recipe.namepath(), "BAZ");
++    assert_eq!(invocations[2].recipe.recipe_path().to_string(), "BAZ");
+     assert_eq!(
+       invocations[2].arguments,
+       vec![vec![
+@@ -581,7 +581,7 @@ foo bar:
+       InvocationParser::parse_invocations(&justfile, &["foo", "--bar", "baz"]).unwrap();
+ 
+     assert_eq!(invocations.len(), 1);
+-    assert_eq!(invocations[0].recipe.namepath(), "foo");
++    assert_eq!(invocations[0].recipe.recipe_path().to_string(), "foo");
+     assert_eq!(invocations[0].arguments, vec![vec![String::from("baz")]]);
+   }
+ 
+@@ -598,7 +598,7 @@ foo baz bar:
+       InvocationParser::parse_invocations(&justfile, &["foo", "qux", "--bar", "baz"]).unwrap();
+ 
+     assert_eq!(invocations.len(), 1);
+-    assert_eq!(invocations[0].recipe.namepath(), "foo");
++    assert_eq!(invocations[0].recipe.recipe_path().to_string(), "foo");
+     assert_eq!(
+       invocations[0].arguments,
+       vec![vec![String::from("qux")], vec![String::from("baz")]]
+@@ -618,7 +618,7 @@ foo baz qux='qux' bar='bar':
+       InvocationParser::parse_invocations(&justfile, &["foo", "--", "--bar"]).unwrap();
+ 
+     assert_eq!(invocations.len(), 1);
+-    assert_eq!(invocations[0].recipe.namepath(), "foo");
++    assert_eq!(invocations[0].recipe.recipe_path().to_string(), "foo");
+     assert_eq!(
+       invocations[0].arguments,
+       vec![vec![String::from("--bar")], Vec::new(), Vec::new()]
+diff --git a/src/justfile.rs b/src/justfile.rs
+index 43336116b3..ebb6f01e27 100644
+--- a/src/justfile.rs
++++ b/src/justfile.rs
+@@ -11,7 +11,7 @@ pub(crate) struct Justfile<'src> {
+   #[serde(skip)]
+   pub(crate) loaded: Vec<PathBuf>,
+   #[serde(skip)]
+-  pub(crate) module_path: String,
++  pub(crate) modulepath: Modulepath,
+   pub(crate) modules: Table<'src, Self>,
+   #[serde(skip)]
+   pub(crate) name: Option<Name<'src>>,
+@@ -79,22 +79,31 @@ impl<'src> Justfile<'src> {
+     arena: &'run Arena<Scope<'src, 'run>>,
+     config: &'run Config,
+     dotenv: &'run BTreeMap<String, String>,
++    overrides: &'run HashMap<Number, String>,
+     root: &'run Scope<'src, 'run>,
+-    scopes: &mut BTreeMap<String, (&'run Self, &'run Scope<'src, 'run>)>,
++    scopes: &mut BTreeMap<Modulepath, (&'run Self, &'run Scope<'src, 'run>)>,
+     search: &'run Search,
+     variable_references: Option<&HashSet<Number>>,
+   ) -> RunResult<'src> {
+-    let scope =
+-      Evaluator::evaluate_assignments(config, dotenv, self, root, search, variable_references)?;
++    let scope = Evaluator::evaluate_assignments(
++      config,
++      dotenv,
++      self,
++      overrides,
++      root,
++      search,
++      variable_references,
++    )?;
+ 
+     let scope = arena.alloc(scope);
+-    scopes.insert(self.module_path.clone(), (self, scope));
++    scopes.insert(self.modulepath.clone(), (self, scope));
+ 
+     for module in self.modules.values() {
+       module.evaluate_scopes(
+         arena,
+         config,
+         dotenv,
++        overrides,
+         scope,
+         scopes,
+         search,
+@@ -110,6 +119,7 @@ impl<'src> Justfile<'src> {
+     config: &Config,
+     search: &Search,
+     arguments: &[String],
++    overrides: &HashMap<Number, String>,
+   ) -> RunResult<'src> {
+     let dotenv = if config.load_dotenv {
+       load_dotenv(config, &self.settings, &search.working_directory)?
+@@ -158,6 +168,7 @@ impl<'src> Justfile<'src> {
+           &arena,
+           config,
+           &dotenv,
++          overrides,
+           &root,
+           &mut scopes,
+           search,
+@@ -199,13 +210,14 @@ impl<'src> Justfile<'src> {
+           &arena,
+           config,
+           &dotenv,
++          overrides,
+           &root,
+           &mut scopes,
+           search,
+           Some(HashSet::new()).as_ref(),
+         )?;
+ 
+-        let scope = scopes.get(&self.module_path).unwrap().1.child();
++        let scope = scopes.get(&self.modulepath).unwrap().1.child();
+ 
+         command.export(&self.settings, &dotenv, &scope, &self.unexports);
+ 
+@@ -256,13 +268,14 @@ impl<'src> Justfile<'src> {
+           &arena,
+           config,
+           &dotenv,
++          overrides,
+           &root,
+           &mut scopes,
+           search,
+           variable_references.as_ref(),
+         )?;
+ 
+-        let scope = scopes.get(&self.module_path).unwrap().1;
++        let scope = scopes.get(&self.modulepath).unwrap().1;
+ 
+         if let Some(variable) = variable {
+           print!("{}", scope.value(variable).unwrap());
+@@ -326,7 +339,7 @@ impl<'src> Justfile<'src> {
+     is_dependency: bool,
+     ran: &Ran,
+     recipe: &Recipe<'src>,
+-    scopes: &BTreeMap<String, (&Self, &Scope<'src, '_>)>,
++    scopes: &BTreeMap<Modulepath, (&Self, &Scope<'src, '_>)>,
+     search: &Search,
+   ) -> RunResult<'src> {
+     let mutex = ran.mutex(recipe, arguments);
+@@ -406,7 +419,7 @@ impl<'src> Justfile<'src> {
+     evaluator: &mut Evaluator<'src, 'run>,
+     ran: &Ran,
+     recipe: &Recipe<'src>,
+-    scopes: &BTreeMap<String, (&Self, &Scope<'src, 'run>)>,
++    scopes: &BTreeMap<Modulepath, (&Self, &Scope<'src, 'run>)>,
+     search: &Search,
+   ) -> RunResult<'src> {
+     if context.config.no_dependencies {
+diff --git a/src/lexer.rs b/src/lexer.rs
+index 8fb0a467f2..a381431b9b 100644
+--- a/src/lexer.rs
++++ b/src/lexer.rs
+@@ -252,21 +252,6 @@ impl<'src> Lexer<'src> {
+     CompileError::new(interpolation_start, UnterminatedInterpolation)
+   }
+ 
+-  /// True if `text` could be an identifier
+-  pub(crate) fn is_identifier(text: &str) -> bool {
+-    if !text.chars().next().is_some_and(Self::is_identifier_start) {
+-      return false;
+-    }
+-
+-    for c in text.chars().skip(1) {
+-      if !Self::is_identifier_continue(c) {
+-        return false;
+-      }
+-    }
+-
+-    true
+-  }
+-
+   /// True if `c` can be the first character of an identifier
+   pub(crate) fn is_identifier_start(c: char) -> bool {
+     matches!(c, 'a'..='z' | 'A'..='Z' | '_')
+diff --git a/src/lib.rs b/src/lib.rs
+index 52a3855e90..98c54855ae 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -55,7 +55,7 @@ pub(crate) use {
+     list::List,
+     load_dotenv::load_dotenv,
+     loader::Loader,
+-    module_path::ModulePath,
++    modulepath::Modulepath,
+     name::Name,
+     namepath::Namepath,
+     number::Number,
+@@ -137,6 +137,7 @@ pub(crate) use {
+     ops::{Index, RangeInclusive},
+     path::{self, Path, PathBuf},
+     process::{self, Command, ExitStatus, Stdio},
++    slice,
+     str::{self, Chars},
+     sync::{Arc, LazyLock, Mutex, MutexGuard},
+     thread, vec,
+@@ -148,10 +149,7 @@ pub(crate) use {
+ };
+ 
+ #[cfg(test)]
+-pub(crate) use {
+-  crate::{node::Node, tree::Tree},
+-  std::slice,
+-};
++pub(crate) use crate::{node::Node, tree::Tree};
+ 
+ pub use crate::run::run;
+ 
+@@ -243,7 +241,7 @@ mod line;
+ mod list;
+ mod load_dotenv;
+ mod loader;
+-mod module_path;
++mod modulepath;
+ mod name;
+ mod namepath;
+ mod number;
+diff --git a/src/module_path.rs b/src/modulepath.rs
+similarity index 68%
+rename from src/module_path.rs
+rename to src/modulepath.rs
+index 1f31be8ef0..be0ee9cbc8 100644
+--- a/src/module_path.rs
++++ b/src/modulepath.rs
+@@ -1,12 +1,40 @@
+ use super::*;
+ 
+-#[derive(Debug, PartialEq, Clone)]
+-pub(crate) struct ModulePath {
++#[derive(Debug, Default, Eq, Ord, PartialEq, PartialOrd, Clone)]
++pub(crate) struct Modulepath {
+   pub(crate) path: Vec<String>,
+   pub(crate) spaced: bool,
+ }
+ 
+-impl TryFrom<&[&str]> for ModulePath {
++impl Modulepath {
++  pub(crate) fn is_empty(&self) -> bool {
++    self.path.is_empty()
++  }
++
++  pub(crate) fn starts_with(&self, other: &Modulepath) -> bool {
++    self.path.starts_with(&other.path)
++  }
++}
++
++impl Serialize for Modulepath {
++  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
++  where
++    S: Serializer,
++  {
++    serializer.serialize_str(&self.to_string())
++  }
++}
++
++impl From<&Namepath<'_>> for Modulepath {
++  fn from(namepath: &Namepath) -> Self {
++    Self {
++      path: namepath.iter().map(|name| name.lexeme().into()).collect(),
++      spaced: false,
++    }
++  }
++}
++
++impl TryFrom<&[&str]> for Modulepath {
+   type Error = ();
+ 
+   fn try_from(path: &[&str]) -> Result<Self, Self::Error> {
+@@ -47,7 +75,7 @@ impl TryFrom<&[&str]> for ModulePath {
+   }
+ }
+ 
+-impl Display for ModulePath {
++impl Display for Modulepath {
+   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+     for (i, name) in self.path.iter().enumerate() {
+       if i > 0 {
+@@ -71,7 +99,7 @@ mod tests {
+   fn try_from_ok() {
+     #[track_caller]
+     fn case(path: &[&str], expected: &[&str], display: &str) {
+-      let actual = ModulePath::try_from(path).unwrap();
++      let actual = Modulepath::try_from(path).unwrap();
+       assert_eq!(actual.path, expected);
+       assert_eq!(actual.to_string(), display);
+     }
+@@ -87,7 +115,7 @@ mod tests {
+   fn try_from_err() {
+     #[track_caller]
+     fn case(path: &[&str]) {
+-      assert!(ModulePath::try_from(path).is_err());
++      assert!(Modulepath::try_from(path).is_err());
+     }
+ 
+     case(&[":foo"]);
+diff --git a/src/namepath.rs b/src/namepath.rs
+index 8860c8e113..fc39455cd7 100644
+--- a/src/namepath.rs
++++ b/src/namepath.rs
+@@ -20,7 +20,6 @@ impl<'src> Namepath<'src> {
+     self.0.split_last().unwrap()
+   }
+ 
+-  #[cfg(test)]
+   pub(crate) fn iter(&self) -> slice::Iter<'_, Name<'src>> {
+     self.0.iter()
+   }
+diff --git a/src/parser.rs b/src/parser.rs
+index 1786c968c7..af29adaa58 100644
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -541,10 +541,7 @@ impl<'run, 'src> Parser<'run, 'src> {
+ 
+     Ok(Ast {
+       items,
+-      module_path: self
+-        .module_namepath
+-        .map(ToString::to_string)
+-        .unwrap_or_default(),
++      modulepath: self.module_namepath.map(Into::into).unwrap_or_default(),
+       unstable_features: self.unstable_features,
+       warnings: Vec::new(),
+       working_directory: self.working_directory.into(),
+@@ -1218,19 +1215,20 @@ impl<'run, 'src> Parser<'run, 'src> {
+     }
+ 
+     Ok(Recipe {
+-      shebang: shebang || script,
+       attributes,
+       body,
+       dependencies,
+       doc: doc.filter(|doc| !doc.is_empty()),
+       file_depth: self.file_depth,
+       import_offsets: self.import_offsets.clone(),
++      module_path: None,
+       name,
+-      namepath: None,
++      recipe_path: None,
+       parameters: positional.into_iter().chain(variadic).collect(),
+       priors,
+       private,
+       quiet,
++      shebang: shebang || script,
+       variable_references: HashSet::new(),
+     })
+   }
+@@ -1659,7 +1657,7 @@ mod tests {
+   }
+ 
+   test! {
+-    name: alias_module_path,
++    name: alias_modulepath,
+     text: "alias fbb := foo::bar::baz",
+     tree: (justfile (alias fbb (foo bar baz))),
+   }
+diff --git a/src/positional.rs b/src/positional.rs
+index 5c8c05c77c..91d34f7a17 100644
+--- a/src/positional.rs
++++ b/src/positional.rs
+@@ -77,18 +77,8 @@ impl Positional {
+ 
+   /// Parse an override from a value of the form `NAME=.*`.
+   fn override_from_value(value: &str) -> Option<(String, String)> {
+-    let equals = value.find('=')?;
+-
+-    let (identifier, equals_value) = value.split_at(equals);
+-
+-    // exclude `=` from value
+-    let value = &equals_value[1..];
+-
+-    if Lexer::is_identifier(identifier) {
+-      Some((identifier.to_owned(), value.to_owned()))
+-    } else {
+-      None
+-    }
++    let (path, value) = value.split_once('=')?;
++    Some((path.into(), value.into()))
+   }
+ }
+ 
+@@ -148,14 +138,6 @@ mod tests {
+     arguments: [],
+   }
+ 
+-  test! {
+-    name: override_not_name,
+-    values: ["foo=bar", "bar.=foo"],
+-    overrides: [("foo", "bar")],
+-    search_directory: None,
+-    arguments: ["bar.=foo"],
+-  }
+-
+   test! {
+     name: no_overrides,
+     values: ["the-dir/", "baz", "bzzd"],
+diff --git a/src/ran.rs b/src/ran.rs
+index 7a2c8c0120..fe5a4f83e0 100644
+--- a/src/ran.rs
++++ b/src/ran.rs
+@@ -1,7 +1,7 @@
+ use super::*;
+ 
+ #[derive(Default)]
+-pub(crate) struct Ran(Mutex<BTreeMap<String, BTreeMap<Vec<Vec<String>>, Arc<Mutex<bool>>>>>);
++pub(crate) struct Ran(Mutex<BTreeMap<Modulepath, BTreeMap<Vec<Vec<String>>, Arc<Mutex<bool>>>>>);
+ 
+ impl Ran {
+   pub(crate) fn mutex(&self, recipe: &Recipe, arguments: &[Vec<String>]) -> Arc<Mutex<bool>> {
+@@ -9,7 +9,7 @@ impl Ran {
+       .0
+       .lock()
+       .unwrap()
+-      .entry(recipe.namepath().into())
++      .entry(recipe.recipe_path().clone())
+       .or_default()
+       .entry(arguments.into())
+       .or_default()
+diff --git a/src/recipe.rs b/src/recipe.rs
+index 984f98ebeb..b7cca58a39 100644
+--- a/src/recipe.rs
++++ b/src/recipe.rs
+@@ -27,29 +27,31 @@ pub(crate) struct Recipe<'src, D = Dependency<'src>> {
+   pub(crate) file_depth: u32,
+   #[serde(skip)]
+   pub(crate) import_offsets: Vec<usize>,
++  #[serde(skip)]
++  pub(crate) module_path: Option<Modulepath>,
+   pub(crate) name: Name<'src>,
+-  pub(crate) namepath: Option<String>,
+   pub(crate) parameters: Vec<Parameter<'src>>,
+   pub(crate) priors: usize,
+   pub(crate) private: bool,
+   pub(crate) quiet: bool,
++  #[serde(rename = "namepath")]
++  pub(crate) recipe_path: Option<Modulepath>,
+   pub(crate) shebang: bool,
+   #[serde(skip)]
+   pub(crate) variable_references: HashSet<Number>,
+ }
+ 
+ impl Recipe<'_> {
+-  pub(crate) fn module_path(&self) -> &str {
+-    let namepath = self.namepath();
+-    &namepath[0..namepath.rfind("::").unwrap_or_default()]
++  pub(crate) fn module_path(&self) -> &Modulepath {
++    self.module_path.as_ref().unwrap()
+   }
+ 
+-  pub(crate) fn namepath(&self) -> &str {
+-    self.namepath.as_ref().unwrap()
++  pub(crate) fn recipe_path(&self) -> &Modulepath {
++    self.recipe_path.as_ref().unwrap()
+   }
+ 
+-  pub(crate) fn spaced_namepath(&self) -> String {
+-    self.namepath().replace("::", " ")
++  pub(crate) fn spaced_recipe_path(&self) -> String {
++    self.recipe_path().to_string().replace("::", " ")
+   }
+ }
+ 
+diff --git a/src/recipe_resolver.rs b/src/recipe_resolver.rs
+index 628c29970a..0813ccb574 100644
+--- a/src/recipe_resolver.rs
++++ b/src/recipe_resolver.rs
+@@ -2,7 +2,7 @@ use {super::*, CompileErrorKind::*};
+ 
+ pub(crate) struct RecipeResolver<'src: 'run, 'run> {
+   assignments: &'run Table<'src, Assignment<'src>>,
+-  module_path: &'run str,
++  modulepath: &'run Modulepath,
+   modules: &'run Table<'src, Justfile<'src>>,
+   resolved_recipes: Table<'src, Arc<Recipe<'src>>>,
+   settings: &'run Settings,
+@@ -12,14 +12,14 @@ pub(crate) struct RecipeResolver<'src: 'run, 'run> {
+ impl<'src: 'run, 'run> RecipeResolver<'src, 'run> {
+   pub(crate) fn resolve_recipes(
+     assignments: &'run Table<'src, Assignment<'src>>,
+-    module_path: &'run str,
++    modulepath: &'run Modulepath,
+     modules: &'run Table<'src, Justfile<'src>>,
+     settings: &'run Settings,
+     unresolved_recipes: Table<'src, UnresolvedRecipe<'src>>,
+   ) -> CompileResult<'src, Table<'src, Arc<Recipe<'src>>>> {
+     let mut resolver = Self {
+       assignments,
+-      module_path,
++      modulepath,
+       modules,
+       resolved_recipes: Table::new(),
+       settings,
+@@ -63,7 +63,7 @@ impl<'src: 'run, 'run> RecipeResolver<'src, 'run> {
+ 
+     let resolved = Arc::new(recipe.resolve(
+       self.assignments,
+-      self.module_path,
++      self.modulepath,
+       dependencies,
+       self.settings,
+     )?);
+diff --git a/src/subcommand.rs b/src/subcommand.rs
+index 821403046b..3e0b824526 100644
+--- a/src/subcommand.rs
++++ b/src/subcommand.rs
+@@ -35,7 +35,7 @@ pub(crate) enum Subcommand {
+   Groups,
+   Init,
+   List {
+-    path: ModulePath,
++    path: Modulepath,
+   },
+   Man,
+   Request {
+@@ -45,11 +45,11 @@ pub(crate) enum Subcommand {
+     arguments: Vec<String>,
+   },
+   Show {
+-    path: ModulePath,
++    path: Modulepath,
+   },
+   Summary,
+   Usage {
+-    path: ModulePath,
++    path: Modulepath,
+   },
+   Variables,
+ }
+@@ -100,10 +100,16 @@ impl Subcommand {
+ 
+     match self {
+       Choose { chooser } => {
+-        Self::choose(config, justfile, &search, chooser.as_deref())?;
++        Self::choose(
++          chooser.as_deref(),
++          config,
++          justfile,
++          &compilation.overrides,
++          &search,
++        )?;
+       }
+       Command { .. } | Evaluate { .. } => {
+-        justfile.run(config, &search, &[])?;
++        justfile.run(config, &search, &[], &compilation.overrides)?;
+       }
+       Dump { format } => Self::dump(compilation, *format)?,
+       Groups => Self::groups(config, justfile),
+@@ -145,7 +151,7 @@ impl Subcommand {
+           SearchConfig::FromInvocationDirectory | SearchConfig::FromSearchDirectory { .. }
+         );
+ 
+-      let result = justfile.run(config, &search, arguments);
++      let result = justfile.run(config, &search, arguments, &compilation.overrides);
+ 
+       if fallback {
+         if let Err(err @ (Error::UnknownRecipe { .. } | Error::UnknownSubmodule { .. })) = result {
+@@ -209,10 +215,11 @@ impl Subcommand {
+   }
+ 
+   fn choose<'src>(
++    chooser: Option<&str>,
+     config: &Config,
+     justfile: &Justfile<'src>,
++    overrides: &HashMap<Number, String>,
+     search: &Search,
+-    chooser: Option<&str>,
+   ) -> RunResult<'src> {
+     let mut recipes = Vec::<&Recipe>::new();
+     let mut stack = vec![justfile];
+@@ -264,7 +271,7 @@ impl Subcommand {
+ 
+     let stdin = child.stdin.as_mut().unwrap();
+     for recipe in recipes {
+-      if let Err(io_error) = writeln!(stdin, "{}", recipe.spaced_namepath()) {
++      if let Err(io_error) = writeln!(stdin, "{}", recipe.spaced_recipe_path()) {
+         if io_error.kind() != std::io::ErrorKind::BrokenPipe {
+           return Err(Error::ChooserWrite { io_error, chooser });
+         }
+@@ -296,7 +303,7 @@ impl Subcommand {
+       .map(str::to_owned)
+       .collect::<Vec<String>>();
+ 
+-    justfile.run(config, search, &recipes)
++    justfile.run(config, search, &recipes, overrides)
+   }
+ 
+   fn completions(shell: completions::Shell) {
+@@ -475,7 +482,7 @@ impl Subcommand {
+     Ok(())
+   }
+ 
+-  fn list(config: &Config, mut module: &Justfile, path: &ModulePath) -> RunResult<'static> {
++  fn list(config: &Config, mut module: &Justfile, path: &Modulepath) -> RunResult<'static> {
+     for name in &path.path {
+       module = module
+         .modules
+@@ -773,7 +780,7 @@ impl Subcommand {
+     Ok(())
+   }
+ 
+-  fn show<'src>(config: &Config, module: &Justfile<'src>, path: &ModulePath) -> RunResult<'src> {
++  fn show<'src>(config: &Config, module: &Justfile<'src>, path: &Modulepath) -> RunResult<'src> {
+     let (alias, recipe) = Self::resolve_path(module, path)?;
+ 
+     if let Some(alias) = alias {
+@@ -823,7 +830,7 @@ impl Subcommand {
+     }
+   }
+ 
+-  fn usage<'src>(config: &Config, module: &Justfile<'src>, path: &ModulePath) -> RunResult<'src> {
++  fn usage<'src>(config: &Config, module: &Justfile<'src>, path: &Modulepath) -> RunResult<'src> {
+     let (alias, recipe) = Self::resolve_path(module, path)?;
+ 
+     if let Some(alias) = alias {
+@@ -845,7 +852,7 @@ impl Subcommand {
+ 
+   fn resolve_path<'src, 'run>(
+     mut module: &'run Justfile<'src>,
+-    path: &ModulePath,
++    path: &Modulepath,
+   ) -> RunResult<'src, (Option<&'run Alias<'src>>, &'run Recipe<'src>)> {
+     for name in &path.path[0..path.path.len() - 1] {
+       module = module
+diff --git a/src/testing.rs b/src/testing.rs
+index 3df74519f5..1696fe03f3 100644
+--- a/src/testing.rs
++++ b/src/testing.rs
+@@ -76,6 +76,7 @@ pub(crate) fn analysis_error(
+     &[],
+     &[],
+     None,
++    &mut HashMap::new(),
+     &paths,
+     false,
+     &root,
+@@ -125,6 +126,7 @@ macro_rules! run_error {
+             &config,
+             &search,
+             &arguments,
++            &HashMap::new(),
+           ).expect_err("Expected runtime error") {
+             $error => $check
+             other => {
+diff --git a/src/unresolved_recipe.rs b/src/unresolved_recipe.rs
+index 062a4ab816..88869c9d40 100644
+--- a/src/unresolved_recipe.rs
++++ b/src/unresolved_recipe.rs
+@@ -6,7 +6,7 @@ impl<'src> UnresolvedRecipe<'src> {
+   pub(crate) fn resolve(
+     self,
+     assignments: &Table<'src, Assignment<'src>>,
+-    module_path: &str,
++    modulepath: &Modulepath,
+     resolved: Vec<Arc<Recipe<'src>>>,
+     settings: &Settings,
+   ) -> CompileResult<'src, Recipe<'src>> {
+@@ -92,13 +92,9 @@ impl<'src> UnresolvedRecipe<'src> {
+       })
+       .collect();
+ 
+-    let mut namepath = String::from(module_path);
++    let mut recipe_path = modulepath.clone();
+ 
+-    if !namepath.is_empty() {
+-      namepath.push_str("::");
+-    }
+-
+-    namepath.push_str(self.name.lexeme());
++    recipe_path.path.push(self.name.lexeme().into());
+ 
+     Ok(Recipe {
+       attributes: self.attributes,
+@@ -107,12 +103,13 @@ impl<'src> UnresolvedRecipe<'src> {
+       doc: self.doc,
+       file_depth: self.file_depth,
+       import_offsets: self.import_offsets,
++      module_path: Some(modulepath.clone()),
+       name: self.name,
+-      namepath: Some(namepath),
+       parameters: self.parameters,
+       priors: self.priors,
+       private: self.private,
+       quiet: self.quiet,
++      recipe_path: Some(recipe_path),
+       shebang: self.shebang,
+       variable_references,
+     })
+diff --git a/src/usage.rs b/src/usage.rs
+index 42f342b40c..48399712ac 100644
+--- a/src/usage.rs
++++ b/src/usage.rs
+@@ -2,7 +2,7 @@ use super::*;
+ 
+ pub(crate) struct Usage<'a, D> {
+   pub(crate) long: bool,
+-  pub(crate) path: &'a ModulePath,
++  pub(crate) path: &'a Modulepath,
+   pub(crate) recipe: &'a Recipe<'a, D>,
+ }
+ 
+diff --git a/tests/modules.rs b/tests/modules.rs
+index d692c6d65a..0aecc5cb64 100644
+--- a/tests/modules.rs
++++ b/tests/modules.rs
+@@ -649,7 +649,7 @@ fn nested_cross_module_dependency_runs_in_correct_directory() {
+ }
+ 
+ #[test]
+-fn module_paths_beginning_with_tilde_are_expanded_to_homdir() {
++fn modulepaths_beginning_with_tilde_are_expanded_to_homdir() {
+   if cfg!(windows) {
+     return;
+   }
+diff --git a/tests/overrides.rs b/tests/overrides.rs
+index bac6055bf7..2326102a9e 100644
+--- a/tests/overrides.rs
++++ b/tests/overrides.rs
+@@ -126,3 +126,110 @@ recipe arg:
+     .stderr("echo arg=baz=bar\necho barbbaz\n")
+     .success();
+ }
++
++#[test]
++fn invalid_override_path_set() {
++  Test::new()
++    .arg("--set")
++    .arg("0::foo")
++    .arg("bar")
++    .stderr("error: Invalid override path `0::foo`\n")
++    .failure();
++}
++
++#[test]
++fn invalid_override_path_positional() {
++  Test::new()
++    .arg("0::foo=bar")
++    .stderr("error: Invalid override path `0::foo`\n")
++    .failure();
++}
++
++#[test]
++fn unknown_variable_in_submodule_override() {
++  Test::new()
++    .justfile("mod foo")
++    .write("foo.just", "bar:\n @echo bar")
++    .arg("foo::x=b")
++    .arg("foo::bar")
++    .stderr("error: Variable `foo::x` overridden on the command line but not present in justfile\n")
++    .failure();
++}
++
++#[test]
++fn override_variable_in_submodule() {
++  Test::new()
++    .justfile("mod foo")
++    .write("foo.just", "x := 'a'\nbar:\n @echo {{x}}")
++    .arg("foo::x=b")
++    .arg("foo::bar")
++    .stdout("b\n")
++    .success();
++}
++
++#[test]
++fn override_variable_in_nested_submodule() {
++  Test::new()
++    .justfile("mod foo")
++    .write("foo/mod.just", "mod bar")
++    .write("foo/bar.just", "x := 'a'\nbaz:\n @echo {{x}}")
++    .arg("foo::bar::x=b")
++    .arg("foo::bar::baz")
++    .stdout("b\n")
++    .success();
++}
++
++#[test]
++fn override_variable_used_in_setting() {
++  Test::new()
++    .justfile(
++      "
++        dir := 'foo'
++        set working-directory := dir
++        bar:
++          @cat file.txt
++      ",
++    )
++    .write("baz/file.txt", "BAZ")
++    .arg("dir=baz")
++    .arg("bar")
++    .stdout("BAZ")
++    .success();
++}
++
++#[test]
++fn submodule_override_does_not_affect_parent() {
++  Test::new()
++    .justfile(
++      "
++        mod foo
++        x := 'root'
++        bar:
++          @echo {{x}}
++      ",
++    )
++    .write("foo.just", "x := 'a'\nbaz:\n @echo {{x}}")
++    .arg("foo::x=b")
++    .arg("bar")
++    .stdout("root\n")
++    .success();
++}
++
++#[test]
++fn unknown_submodule_in_override_path() {
++  Test::new()
++    .arg("foo::x=b")
++    .stderr("error: Variable `foo::x` overridden on the command line but not present in justfile\n")
++    .failure();
++}
++
++#[test]
++fn submodule_override_not_evaluated() {
++  Test::new()
++    .justfile("mod foo")
++    .write("foo.just", "x := `exit 1`\nbar:\n @echo {{x}}")
++    .arg("foo::x=b")
++    .arg("foo::bar")
++    .stdout("b\n")
++    .success();
++}

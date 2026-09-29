@@ -1,0 +1,18 @@
+{
+  "id": "2299",
+  "title": "Private variables",
+  "base": "a9ac91b809e3aecd876c2b108b07ef920d0e5050",
+  "opening": "我的 justfile 里有很多中间变量，是由少数几个基础设置拼出来的。我希望能把这些中间变量标为私有，这样 `just --variables` 之类的地方不会把它们列出来，免得用户以为可以改它们。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "decisions": [
+    "变量可用 [private]，_ 前缀也视为私有",
+    "--variables 不列出私有变量",
+    "--evaluate 不列出私有变量",
+    "--evaluate NAME 仍可输出私有变量，不加 --all",
+    "JSON dump 带 private 字段",
+    "export 变量也可私有"
+  ],
+  "non_goals": [
+    "--all/--debug 之类显示私有变量的新开关"
+  ],
+  "brief": "你是这个需求的提出者，维护者已经认可了方案。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 复用 recipe 已有的 `[private]` 属性，允许写在变量赋值上；另外名字以 `_` 开头的变量也视为私有（与 recipe 的约定一致）。\n2. 私有变量不出现在 `just --variables` 的输出里。\n3. 私有变量也不出现在 `just --evaluate`（不带参数）的输出里。\n4. 但 `just --evaluate NAME` 显式指定私有变量时仍然输出它的值，方便调试；不另加 `--all` 之类的开关。\n5. `--dump --dump-format json` 里每个变量带一个 `private` 布尔字段。\n6. export 的变量也可以是私有的。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。"
+}

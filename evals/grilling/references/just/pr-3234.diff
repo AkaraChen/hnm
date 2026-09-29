@@ -1,0 +1,449 @@
+diff --git a/src/arguments.rs b/src/arguments.rs
+index a0d3ed6b01..9ed13d40a1 100644
+--- a/src/arguments.rs
++++ b/src/arguments.rs
+@@ -182,6 +182,13 @@ pub struct Arguments {
+     value_name = "JUSTFILE"
+   )]
+   pub(crate) justfile: Option<PathBuf>,
++  #[arg(
++    env = "JUST_JUSTFILE_NAME",
++    help = "Search for justfile named <NAME>",
++    long = "justfile-name",
++    value_name = "NAME"
++  )]
++  pub(crate) justfile_names: Option<Vec<String>>,
+   #[arg(
+     default_value = "Available recipes:\n",
+     env = "JUST_LIST_HEADING",
+diff --git a/src/config.rs b/src/config.rs
+index 02e8724dd9..c628b79d78 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -16,6 +16,7 @@ pub(crate) struct Config {
+   pub(crate) groups: Vec<String>,
+   pub(crate) highlight: bool,
+   pub(crate) invocation_directory: PathBuf,
++  pub(crate) justfile_names: Option<Vec<String>>,
+   pub(crate) list_heading: String,
+   pub(crate) list_prefix: String,
+   pub(crate) list_submodules: bool,
+@@ -260,9 +261,10 @@ impl Config {
+       dotenv_path: arguments.dotenv_path,
+       dry_run: arguments.dry_run,
+       explain: arguments.explain,
++      groups: arguments.group,
+       highlight: !arguments.no_highlight,
+       invocation_directory,
+-      groups: arguments.group,
++      justfile_names: arguments.justfile_names,
+       list_heading: arguments.list_heading,
+       list_prefix: arguments.list_prefix,
+       list_submodules: arguments.list_submodules,
+diff --git a/src/search.rs b/src/search.rs
+index 0fb073e9fb..2daf1a89b0 100644
+--- a/src/search.rs
++++ b/src/search.rs
+@@ -33,11 +33,11 @@ impl Search {
+   pub(crate) fn search(config: &Config) -> SearchResult<Self> {
+     match &config.search_config {
+       SearchConfig::FromInvocationDirectory => {
+-        Self::find_in_directory(config.ceiling.as_deref(), &config.invocation_directory)
++        Self::find_in_directory(config, &config.invocation_directory)
+       }
+       SearchConfig::FromSearchDirectory { search_directory } => {
+         let search_directory = Self::clean(&config.invocation_directory, search_directory);
+-        let justfile = Self::justfile(config.ceiling.as_deref(), &search_directory)?;
++        let justfile = Self::justfile(config, &search_directory)?;
+         let working_directory = Self::working_directory_from_justfile(&justfile)?;
+         Ok(Self {
+           justfile,
+@@ -46,10 +46,7 @@ impl Search {
+       }
+       SearchConfig::GlobalJustfile => Ok(Self {
+         justfile: Self::find_global_justfile()?,
+-        working_directory: Self::project_root(
+-          config.ceiling.as_deref(),
+-          &config.invocation_directory,
+-        )?,
++        working_directory: Self::project_root(config, &config.invocation_directory)?,
+       }),
+       SearchConfig::WithJustfile { justfile } => {
+         let justfile = Self::clean(&config.invocation_directory, justfile);
+@@ -90,7 +87,7 @@ impl Search {
+   }
+ 
+   /// Find justfile starting from parent directory of current justfile
+-  pub(crate) fn search_parent_directory(&self, ceiling: Option<&Path>) -> SearchResult<Self> {
++  pub(crate) fn search_parent_directory(&self, config: &Config) -> SearchResult<Self> {
+     let parent = self
+       .justfile
+       .parent()
+@@ -98,12 +95,12 @@ impl Search {
+       .ok_or_else(|| SearchError::JustfileHadNoParent {
+         path: self.justfile.clone(),
+       })?;
+-    Self::find_in_directory(ceiling, parent)
++    Self::find_in_directory(config, parent)
+   }
+ 
+   /// Find justfile starting in given directory searching upwards in directory tree
+-  fn find_in_directory(ceiling: Option<&Path>, starting_dir: &Path) -> SearchResult<Self> {
+-    let justfile = Self::justfile(ceiling, starting_dir)?;
++  fn find_in_directory(config: &Config, starting_dir: &Path) -> SearchResult<Self> {
++    let justfile = Self::justfile(config, starting_dir)?;
+     let working_directory = Self::working_directory_from_justfile(&justfile)?;
+     Ok(Self {
+       justfile,
+@@ -112,24 +109,28 @@ impl Search {
+   }
+ 
+   /// Get working directory and justfile path for newly-initialized justfile
+-  pub(crate) fn init(
+-    search_config: &SearchConfig,
+-    invocation_directory: &Path,
+-    ceiling: Option<&Path>,
+-  ) -> SearchResult<Self> {
+-    match search_config {
++  pub(crate) fn init(config: &Config) -> SearchResult<Self> {
++    let default_justfile_name = || {
++      config
++        .justfile_names
++        .as_ref()
++        .and_then(|names| names.first().map(String::as_str))
++        .unwrap_or(DEFAULT_JUSTFILE_NAME)
++    };
++
++    match &config.search_config {
+       SearchConfig::FromInvocationDirectory => {
+-        let working_directory = Self::project_root(ceiling, invocation_directory)?;
+-        let justfile = working_directory.join(DEFAULT_JUSTFILE_NAME);
++        let working_directory = Self::project_root(config, &config.invocation_directory)?;
++        let justfile = working_directory.join(default_justfile_name());
+         Ok(Self {
+           justfile,
+           working_directory,
+         })
+       }
+       SearchConfig::FromSearchDirectory { search_directory } => {
+-        let search_directory = Self::clean(invocation_directory, search_directory);
+-        let working_directory = Self::project_root(ceiling, &search_directory)?;
+-        let justfile = working_directory.join(DEFAULT_JUSTFILE_NAME);
++        let search_directory = Self::clean(&config.invocation_directory, search_directory);
++        let working_directory = Self::project_root(config, &search_directory)?;
++        let justfile = working_directory.join(default_justfile_name());
+         Ok(Self {
+           justfile,
+           working_directory,
+@@ -137,7 +138,7 @@ impl Search {
+       }
+       SearchConfig::GlobalJustfile => Err(SearchError::GlobalJustfileInit),
+       SearchConfig::WithJustfile { justfile } => {
+-        let justfile = Self::clean(invocation_directory, justfile);
++        let justfile = Self::clean(&config.invocation_directory, justfile);
+         let working_directory = Self::working_directory_from_justfile(&justfile)?;
+         Ok(Self {
+           justfile,
+@@ -148,15 +149,15 @@ impl Search {
+         justfile,
+         working_directory,
+       } => Ok(Self {
+-        justfile: Self::clean(invocation_directory, justfile),
+-        working_directory: Self::clean(invocation_directory, working_directory),
++        justfile: Self::clean(&config.invocation_directory, justfile),
++        working_directory: Self::clean(&config.invocation_directory, working_directory),
+       }),
+     }
+   }
+ 
+   /// Search upwards from `directory` for a file whose name matches one of
+   /// `JUSTFILE_NAMES`
+-  fn justfile(ceiling: Option<&Path>, directory: &Path) -> SearchResult<PathBuf> {
++  fn justfile(config: &Config, directory: &Path) -> SearchResult<PathBuf> {
+     for directory in directory.ancestors() {
+       let mut candidates = BTreeSet::new();
+ 
+@@ -171,7 +172,14 @@ impl Search {
+           directory: directory.to_owned(),
+         })?;
+         if let Some(name) = entry.file_name().to_str() {
+-          for justfile_name in JUSTFILE_NAMES {
++          let justfile_names: Box<dyn Iterator<Item = &str>> =
++            if let Some(justfile_names) = &config.justfile_names {
++              Box::new(justfile_names.iter().map(String::as_str))
++            } else {
++              Box::new(JUSTFILE_NAMES.into_iter())
++            };
++
++          for justfile_name in justfile_names {
+             if name.eq_ignore_ascii_case(justfile_name) {
+               candidates.insert(entry.path());
+             }
+@@ -185,7 +193,7 @@ impl Search {
+         _ => return Err(SearchError::MultipleCandidates { candidates }),
+       }
+ 
+-      if let Some(ceiling) = ceiling {
++      if let Some(ceiling) = &config.ceiling {
+         if directory == ceiling {
+           break;
+         }
+@@ -216,7 +224,7 @@ impl Search {
+   /// Search upwards from `directory` for the root directory of a software
+   /// project, as determined by the presence of one of the version control
+   /// system directories given in `PROJECT_ROOT_CHILDREN`
+-  fn project_root(ceiling: Option<&Path>, directory: &Path) -> SearchResult<PathBuf> {
++  fn project_root(config: &Config, directory: &Path) -> SearchResult<PathBuf> {
+     for directory in directory.ancestors() {
+       let entries = fs::read_dir(directory).map_err(|io_error| SearchError::Io {
+         io_error,
+@@ -235,7 +243,7 @@ impl Search {
+         }
+       }
+ 
+-      if let Some(ceiling) = ceiling {
++      if let Some(ceiling) = &config.ceiling {
+         if directory == ceiling {
+           break;
+         }
+@@ -261,110 +269,6 @@ impl Search {
+ mod tests {
+   use super::*;
+ 
+-  #[test]
+-  fn not_found() {
+-    let tmp = testing::tempdir();
+-    match Search::justfile(None, tmp.path()) {
+-      Err(SearchError::NotFound) => {}
+-      _ => panic!("No justfile found error was expected"),
+-    }
+-  }
+-
+-  #[test]
+-  fn multiple_candidates() {
+-    let tmp = testing::tempdir();
+-    let mut path = tmp.path().to_path_buf();
+-    path.push(DEFAULT_JUSTFILE_NAME);
+-    fs::write(&path, "default:\n\techo ok").unwrap();
+-    path.pop();
+-    path.push(DEFAULT_JUSTFILE_NAME.to_uppercase());
+-    if fs::File::open(path.as_path()).is_ok() {
+-      // We are in case-insensitive file system
+-      return;
+-    }
+-    fs::write(&path, "default:\n\techo ok").unwrap();
+-    path.pop();
+-    match Search::justfile(None, path.as_path()) {
+-      Err(SearchError::MultipleCandidates { .. }) => {}
+-      _ => panic!("Multiple candidates error was expected"),
+-    }
+-  }
+-
+-  #[test]
+-  fn found() {
+-    let tmp = testing::tempdir();
+-    let mut path = tmp.path().to_path_buf();
+-    path.push(DEFAULT_JUSTFILE_NAME);
+-    fs::write(&path, "default:\n\techo ok").unwrap();
+-    path.pop();
+-    if let Err(err) = Search::justfile(None, path.as_path()) {
+-      panic!("No errors were expected: {err}");
+-    }
+-  }
+-
+-  #[test]
+-  fn found_spongebob_case() {
+-    let tmp = testing::tempdir();
+-    let mut path = tmp.path().to_path_buf();
+-    let spongebob_case = DEFAULT_JUSTFILE_NAME
+-      .chars()
+-      .enumerate()
+-      .map(|(i, c)| {
+-        if i % 2 == 0 {
+-          c.to_ascii_uppercase()
+-        } else {
+-          c
+-        }
+-      })
+-      .collect::<String>();
+-    path.push(spongebob_case);
+-    fs::write(&path, "default:\n\techo ok").unwrap();
+-    path.pop();
+-    if let Err(err) = Search::justfile(None, path.as_path()) {
+-      panic!("No errors were expected: {err}");
+-    }
+-  }
+-
+-  #[test]
+-  fn found_from_inner_dir() {
+-    let tmp = testing::tempdir();
+-    let mut path = tmp.path().to_path_buf();
+-    path.push(DEFAULT_JUSTFILE_NAME);
+-    fs::write(&path, "default:\n\techo ok").unwrap();
+-    path.pop();
+-    path.push("a");
+-    fs::create_dir(&path).expect("test justfile search: failed to create intermediary directory");
+-    path.push("b");
+-    fs::create_dir(&path).expect("test justfile search: failed to create intermediary directory");
+-    if let Err(err) = Search::justfile(None, path.as_path()) {
+-      panic!("No errors were expected: {err}");
+-    }
+-  }
+-
+-  #[test]
+-  fn found_and_stopped_at_first_justfile() {
+-    let tmp = testing::tempdir();
+-    let mut path = tmp.path().to_path_buf();
+-    path.push(DEFAULT_JUSTFILE_NAME);
+-    fs::write(&path, "default:\n\techo ok").unwrap();
+-    path.pop();
+-    path.push("a");
+-    fs::create_dir(&path).expect("test justfile search: failed to create intermediary directory");
+-    path.push(DEFAULT_JUSTFILE_NAME);
+-    fs::write(&path, "default:\n\techo ok").unwrap();
+-    path.pop();
+-    path.push("b");
+-    fs::create_dir(&path).expect("test justfile search: failed to create intermediary directory");
+-    match Search::justfile(None, path.as_path()) {
+-      Ok(found_path) => {
+-        path.pop();
+-        path.push(DEFAULT_JUSTFILE_NAME);
+-        assert_eq!(found_path, path);
+-      }
+-      Err(err) => panic!("No errors were expected: {err}"),
+-    }
+-  }
+-
+   #[test]
+   fn clean() {
+     let cases = &[
+diff --git a/src/subcommand.rs b/src/subcommand.rs
+index d85832c94e..19ca2e0217 100644
+--- a/src/subcommand.rs
++++ b/src/subcommand.rs
+@@ -157,9 +157,7 @@ impl Subcommand {
+ 
+       if fallback {
+         if let Err(err @ (Error::UnknownRecipe { .. } | Error::UnknownSubmodule { .. })) = result {
+-          search = search
+-            .search_parent_directory(config.ceiling.as_deref())
+-            .map_err(|_| err)?;
++          search = search.search_parent_directory(config).map_err(|_| err)?;
+ 
+           if config.verbosity.loquacious() {
+             eprintln!(
+@@ -425,11 +423,7 @@ impl Subcommand {
+   }
+ 
+   fn init(config: &Config) -> RunResult<'static> {
+-    let search = Search::init(
+-      &config.search_config,
+-      &config.invocation_directory,
+-      config.ceiling.as_deref(),
+-    )?;
++    let search = Search::init(config)?;
+ 
+     if filesystem::is_file(&search.justfile)? {
+       return Err(Error::InitExists {
+diff --git a/tests/init.rs b/tests/init.rs
+index ce1b26491e..055d9c9016 100644
+--- a/tests/init.rs
++++ b/tests/init.rs
+@@ -185,6 +185,30 @@ fn justfile_and_working_directory() {
+   );
+ }
+ 
++#[test]
++fn justfile_name_from_invocation_directory() {
++  Test::new()
++    .no_justfile()
++    .test_round_trip(false)
++    .create_dir(".git")
++    .args(["--init", "--justfile-name", "foo"])
++    .stderr_regex("Wrote justfile to `.*`\n")
++    .expect_file("foo", INIT_JUSTFILE)
++    .success();
++}
++
++#[test]
++fn justfile_name_from_search_directory() {
++  Test::new()
++    .no_justfile()
++    .test_round_trip(false)
++    .create_dir("sub/.git")
++    .args(["--init", "--justfile-name", "foo", "sub/"])
++    .stderr_regex("Wrote justfile to `.*`\n")
++    .expect_file("sub/foo", INIT_JUSTFILE)
++    .success();
++}
++
+ #[test]
+ fn fmt_compatibility() {
+   let output = Test::new()
+diff --git a/tests/search.rs b/tests/search.rs
+index 17cbf6d013..8f3aa05f12 100644
+--- a/tests/search.rs
++++ b/tests/search.rs
+@@ -197,6 +197,62 @@ fn dot_justfile_conflicts_with_justfile() {
+     .failure();
+ }
+ 
++#[test]
++fn not_found() {
++  Test::new()
++    .no_justfile()
++    .test_round_trip(false)
++    .stderr_regex("error: No justfile found\n")
++    .failure();
++}
++
++#[test]
++fn found_spongebob_case() {
++  let tmp = temptree! {
++    JuStFiLe: "default:\n\techo ok",
++    a: {},
++  };
++
++  search_test(tmp.path().join("a"), &[]);
++}
++
++#[test]
++fn search_stops_at_closest_justfile() {
++  let tmp = temptree! {
++    justfile: "default:\n\techo bad",
++    a: {
++      justfile: "default:\n\techo ok",
++      b: {},
++    },
++  };
++
++  search_test(tmp.path().join("a/b"), &[]);
++}
++
++#[test]
++fn justfile_name_not_found() {
++  Test::new()
++    .justfile("default:\n\techo ok")
++    .args(["--justfile-name", "foo"])
++    .stderr_regex("error: No justfile found\n")
++    .failure();
++}
++
++#[test]
++fn justfile_name_skips_default_justfile() {
++  Test::new()
++    .no_justfile()
++    .test_round_trip(false)
++    .write("foo", "default:\n\techo ok")
++    .create_dir("subdir")
++    .write("subdir/justfile", "default:\n\techo bad")
++    .current_dir("subdir")
++    .args(["--justfile-name", "foo"])
++    .stderr("echo ok\n")
++    .stdout("ok\n")
++    .success();
++}
++
+ #[test]
+ fn justfile_symlink_parent() {
+   Test::new()

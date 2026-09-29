@@ -1,0 +1,320 @@
+diff --git a/README.md b/README.md
+index 0af86582dc..27e3307a50 100644
+--- a/README.md
++++ b/README.md
+@@ -884,8 +884,8 @@ $ just bar
+ /subdir
+ ```
+ 
+-You can override working directory with `set working-directory := '…'`, whose value
+-is relative to the default working directory.
++You can override the working directory for all recipes with
++`set working-directory := '…'`:
+ 
+ ```just
+ set working-directory := 'bar'
+@@ -901,6 +901,26 @@ $ just foo
+ /home/bob/bar
+ ```
+ 
++You can override the working directory for a specific recipe with the
++`working-directory` attribute<sup>master</sup>:
++
++```just
++[working-directory: 'bar']
++@foo:
++  pwd
++```
++
++```console
++$ pwd
++/home/bob
++$ just foo
++/home/bob/bar
++```
++
++The argument to the `working-directory` setting or `working-directory`
++attribute may be absolute or relative. If it is relative it is interpreted
++relative to the default working directory.
++
+ ### Aliases
+ 
+ Aliases allow recipes to be invoked on the command line with alternative names:
+@@ -1972,6 +1992,7 @@ change their behavior.
+ | `[script(COMMAND)]`<sup>1.32.0</sup> | recipe | Execute recipe as a script interpreted by `COMMAND`. See [script recipes](#script-recipes) for more details. |
+ | `[unix]`<sup>1.8.0</sup> | recipe | Enable recipe on Unixes. (Includes MacOS). |
+ | `[windows]`<sup>1.8.0</sup> | recipe | Enable recipe on Windows. |
++| `[working-directory(PATH)]`<sup>master</sup> | recipe | Set recipe working directory. `PATH` may be relative or absolute. If relative, it is interpreted relative to the default working directory. |
+ 
+ A recipe can have multiple attributes, either on multiple lines:
+ 
+diff --git a/src/attribute.rs b/src/attribute.rs
+index e6e9f52a40..b2710d3dbd 100644
+--- a/src/attribute.rs
++++ b/src/attribute.rs
+@@ -23,13 +23,14 @@ pub(crate) enum Attribute<'src> {
+   Script(Option<Interpreter<'src>>),
+   Unix,
+   Windows,
++  WorkingDirectory(StringLiteral<'src>),
+ }
+ 
+ impl AttributeDiscriminant {
+   fn argument_range(self) -> RangeInclusive<usize> {
+     match self {
+       Self::Confirm | Self::Doc => 0..=1,
+-      Self::Group | Self::Extension => 1..=1,
++      Self::Group | Self::Extension | Self::WorkingDirectory => 1..=1,
+       Self::Linux
+       | Self::Macos
+       | Self::NoCd
+@@ -93,6 +94,9 @@ impl<'src> Attribute<'src> {
+       }),
+       AttributeDiscriminant::Unix => Self::Unix,
+       AttributeDiscriminant::Windows => Self::Windows,
++      AttributeDiscriminant::WorkingDirectory => {
++        Self::WorkingDirectory(arguments.into_iter().next().unwrap())
++      }
+     })
+   }
+ 
+@@ -117,7 +121,8 @@ impl<'src> Display for Attribute<'src> {
+       Self::Confirm(Some(argument))
+       | Self::Doc(Some(argument))
+       | Self::Extension(argument)
+-      | Self::Group(argument) => write!(f, "({argument})")?,
++      | Self::Group(argument)
++      | Self::WorkingDirectory(argument) => write!(f, "({argument})")?,
+       Self::Script(Some(shell)) => write!(f, "({shell})")?,
+       Self::Confirm(None)
+       | Self::Doc(None)
+diff --git a/src/compile_error.rs b/src/compile_error.rs
+index 8b4ec8ded6..7fa2e0a3cb 100644
+--- a/src/compile_error.rs
++++ b/src/compile_error.rs
+@@ -203,6 +203,10 @@ impl Display for CompileError<'_> {
+            consist of tabs or spaces, but not both",
+         ShowWhitespace(whitespace)
+       ),
++      NoCdAndWorkingDirectoryAttribute { recipe } => write!(
++        f,
++        "Recipe `{recipe}` has both `[no-cd]` and `[working-directory]` attributes"
++      ),
+       ParameterFollowsVariadicParameter { parameter } => {
+         write!(f, "Parameter `{parameter}` follows variadic parameter")
+       }
+diff --git a/src/compile_error_kind.rs b/src/compile_error_kind.rs
+index 99943fc76b..bc013b9025 100644
+--- a/src/compile_error_kind.rs
++++ b/src/compile_error_kind.rs
+@@ -87,6 +87,9 @@ pub(crate) enum CompileErrorKind<'src> {
+   MixedLeadingWhitespace {
+     whitespace: &'src str,
+   },
++  NoCdAndWorkingDirectoryAttribute {
++    recipe: &'src str,
++  },
+   ParameterFollowsVariadicParameter {
+     parameter: &'src str,
+   },
+diff --git a/src/parser.rs b/src/parser.rs
+index b5f2ed5f7d..32a5575159 100644
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -934,6 +934,22 @@ impl<'run, 'src> Parser<'run, 'src> {
+       }));
+     }
+ 
++    let working_directory = attributes
++      .iter()
++      .any(|attribute| matches!(attribute, Attribute::WorkingDirectory(_)));
++
++    if working_directory {
++      for attribute in &attributes {
++        if let Attribute::NoCd = attribute {
++          return Err(
++            name.error(CompileErrorKind::NoCdAndWorkingDirectoryAttribute {
++              recipe: name.lexeme(),
++            }),
++          );
++        }
++      }
++    }
++
+     let private = name.lexeme().starts_with('_') || attributes.contains(&Attribute::Private);
+ 
+     let mut doc = doc.map(ToOwned::to_owned);
+diff --git a/src/recipe.rs b/src/recipe.rs
+index 0b6cdacfb0..b07de478dc 100644
+--- a/src/recipe.rs
++++ b/src/recipe.rs
+@@ -131,11 +131,19 @@ impl<'src, D> Recipe<'src, D> {
+   }
+ 
+   fn working_directory<'a>(&'a self, context: &'a ExecutionContext) -> Option<PathBuf> {
+-    if self.change_directory() {
+-      Some(context.working_directory())
+-    } else {
+-      None
++    if !self.change_directory() {
++      return None;
+     }
++
++    let working_directory = context.working_directory();
++
++    for attribute in &self.attributes {
++      if let Attribute::WorkingDirectory(dir) = attribute {
++        return Some(working_directory.join(&dir.cooked));
++      }
++    }
++
++    Some(working_directory)
+   }
+ 
+   fn no_quiet(&self) -> bool {
+diff --git a/tests/test.rs b/tests/test.rs
+index a1c65ac201..41c0db5786 100644
+--- a/tests/test.rs
++++ b/tests/test.rs
+@@ -48,6 +48,7 @@ pub(crate) struct Test {
+   pub(crate) args: Vec<String>,
+   pub(crate) current_dir: PathBuf,
+   pub(crate) env: BTreeMap<String, String>,
++  pub(crate) expected_files: BTreeMap<PathBuf, Vec<u8>>,
+   pub(crate) justfile: Option<String>,
+   pub(crate) shell: bool,
+   pub(crate) status: i32,
+@@ -71,6 +72,7 @@ impl Test {
+       args: Vec::new(),
+       current_dir: PathBuf::new(),
+       env: BTreeMap::new(),
++      expected_files: BTreeMap::new(),
+       justfile: Some(String::new()),
+       shell: true,
+       status: EXIT_SUCCESS,
+@@ -98,7 +100,7 @@ impl Test {
+   }
+ 
+   pub(crate) fn create_dir(self, path: impl AsRef<Path>) -> Self {
+-    fs::create_dir_all(self.tempdir.path().join(path.as_ref())).unwrap();
++    fs::create_dir_all(self.tempdir.path().join(path)).unwrap();
+     self
+   }
+ 
+@@ -195,6 +197,14 @@ impl Test {
+     fs::write(path, content).unwrap();
+     self
+   }
++
++  pub(crate) fn expect_file(mut self, path: impl AsRef<Path>, content: impl AsRef<[u8]>) -> Self {
++    let path = path.as_ref();
++    self
++      .expected_files
++      .insert(path.into(), content.as_ref().into());
++    self
++  }
+ }
+ 
+ impl Test {
+@@ -283,6 +293,16 @@ impl Test {
+       panic!("Output mismatch.");
+     }
+ 
++    for (path, expected) in &self.expected_files {
++      let actual = fs::read(self.tempdir.path().join(path)).unwrap();
++      assert_eq!(
++        actual,
++        expected.as_slice(),
++        "mismatch for expected file at path {}",
++        path.display(),
++      );
++    }
++
+     if self.test_round_trip && self.status == EXIT_SUCCESS {
+       self.round_trip();
+     }
+diff --git a/tests/working_directory.rs b/tests/working_directory.rs
+index 3396b73eb7..bfae635f5c 100644
+--- a/tests/working_directory.rs
++++ b/tests/working_directory.rs
+@@ -331,3 +331,80 @@ file := shell('cat file.txt')
+     .stdout("FILE\n")
+     .run();
+ }
++
++#[test]
++fn attribute_duplicate() {
++  Test::new()
++    .justfile(
++      "
++        [working-directory('bar')]
++        [working-directory('baz')]
++        foo:
++      ",
++    )
++    .stderr(
++      "error: Recipe attribute `working-directory` first used on line 1 is duplicated on line 2
++ ——▶ justfile:2:2
++  │
++2 │ [working-directory('baz')]
++  │  ^^^^^^^^^^^^^^^^^
++",
++    )
++    .status(EXIT_FAILURE)
++    .run();
++}
++
++#[test]
++fn attribute() {
++  Test::new()
++    .justfile(
++      "
++        [working-directory('foo')]
++        @qux:
++          echo baz > bar
++      ",
++    )
++    .create_dir("foo")
++    .expect_file("foo/bar", "baz\n")
++    .run();
++}
++
++#[test]
++fn attribute_with_nocd_is_forbidden() {
++  Test::new()
++    .justfile(
++      "
++        [working-directory('foo')]
++        [no-cd]
++        bar:
++      ",
++    )
++    .stderr(
++      "
++        error: Recipe `bar` has both `[no-cd]` and `[working-directory]` attributes
++         ——▶ justfile:3:1
++          │
++        3 │ bar:
++          │ ^^^
++      ",
++    )
++    .status(EXIT_FAILURE)
++    .run();
++}
++
++#[test]
++fn setting_and_attribute() {
++  Test::new()
++    .justfile(
++      "
++        set working-directory := 'foo'
++
++        [working-directory('bar')]
++        @baz:
++          echo bob > fred
++      ",
++    )
++    .create_dir("foo/bar")
++    .expect_file("foo/bar/fred", "bob\n")
++    .run();
++}

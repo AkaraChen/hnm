@@ -1,0 +1,18 @@
+{
+  "id": "2119",
+  "title": "Override submodule variables on CLI",
+  "base": "d79b10d6eca695bf301fb159579078c9ff26c713",
+  "opening": "我有一个根 justfile，用 `mod test 'test.just'` 引入子模块，两边都用到变量 `compose_provider`。命令行 `just compose_provider=nerdctl show` 可以覆盖根里的变量，但 `just compose_provider=nerdctl test show` 时子模块里还是默认值。我希望命令行也能覆盖子模块里的变量。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "decisions": [
+    "用 :: 模块路径覆盖子模块变量，支持 = 与 --set，支持嵌套",
+    "不带路径只覆盖根模块，不自动传播",
+    "不影响父模块同名变量",
+    "不存在时沿用现有 not present 报错",
+    "非法路径报 Invalid override path",
+    "覆盖后不再求值原表达式"
+  ],
+  "non_goals": [
+    "不带路径时自动传播到子模块"
+  ],
+  "brief": "你是这个需求的提出者，维护者已经认可了方案。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 用 `::` 分隔的模块路径指定子模块变量：`foo::bar=VALUE`，以及 `--set foo::bar VALUE`。嵌套模块同理，如 `foo::bar::x=VALUE`。\n2. 不带路径的 `x=VALUE` 仍然只覆盖根模块，不会自动传播到子模块。\n3. 覆盖子模块变量不影响父模块同名变量。\n4. 路径里的模块或变量不存在时报错，沿用现有的 `Variable foo::x overridden on the command line but not present in justfile`。\n5. 路径格式非法（如 `0::foo`）时报错 `Invalid override path 0::foo`。\n6. 被覆盖的变量不会再求值原表达式（和现有根变量覆盖一致）。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。"
+}

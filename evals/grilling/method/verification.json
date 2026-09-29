@@ -1,0 +1,246 @@
+{
+  "runs": [
+    {
+      "run": "runs/1657/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/1657/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/1657/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/1748/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/1748/base-t2",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/1748/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/1748/hook-t2",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/1748/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2082/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2082/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2082/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2119/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2119/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2119/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2291/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2291/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2291/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2299/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2299/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2299/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2544/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2544/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2544/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2872/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2872/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2872/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2908/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2908/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2908/hook4-t1",
+      "docs_complete": false,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2990/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2990/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/2990/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/3191/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/3191/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/3191/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/733/base-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/733/base-t2",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/733/hook-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/733/hook-t2",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    },
+    {
+      "run": "runs/733/hook4-t1",
+      "docs_complete": true,
+      "graded": true,
+      "source_mutations": []
+    }
+  ],
+  "flagged_commands": [],
+  "note": "Command scan is a heuristic, not OS isolation. Existing tracked source files are checked against the archived base."
+}

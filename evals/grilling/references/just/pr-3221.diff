@@ -1,0 +1,265 @@
+diff --git a/README.md b/README.md
+index cff7bf1f7f..78acda45a3 100644
+--- a/README.md
++++ b/README.md
+@@ -1477,6 +1477,23 @@ $ just --evaluate bob::bar::y
+ hello
+ ```
+ 
++The format of exported variables may be controlled with
++`--evaluate-format`<sup>master</sup>:
++
++```console
++$ just --evaluate --evaluate-format shell
++bar="world"
++foo="hello"
++```
++
++The default format is `--evaluate-format just`:
++
++```console
++$ just --evaluate --evaluate-format just
++bar := "world"
++foo := "hello"
++```
++
+ ### Expressions and Substitutions
+ 
+ Various operators and function calls are supported in expressions, which may be
+diff --git a/src/arguments.rs b/src/arguments.rs
+index 2afc405d9c..a0d3ed6b01 100644
+--- a/src/arguments.rs
++++ b/src/arguments.rs
+@@ -128,6 +128,15 @@ pub struct Arguments {
+     value_name = "FORMAT"
+   )]
+   pub(crate) dump_format: DumpFormat,
++  #[arg(
++    default_value = "just",
++    env = "JUST_EVALUATE_FORMAT",
++    help = "Print evaluated variables in <FORMAT>",
++    long,
++    value_enum,
++    value_name = "FORMAT"
++  )]
++  pub(crate) evaluate_format: EvaluateFormat,
+   #[arg(
+     env = "JUST_EXPLAIN",
+     help = "Print recipe doc comment before running it",
+diff --git a/src/config.rs b/src/config.rs
+index 0c464c4099..66df50d10e 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -136,7 +136,10 @@ impl Config {
+         });
+       };
+ 
+-      Ok(Subcommand::Evaluate { path })
++      Ok(Subcommand::Evaluate {
++        format: arguments.evaluate_format,
++        path,
++      })
+     } else if arguments.subcommand.fmt {
+       Ok(Subcommand::Format)
+     } else if arguments.subcommand.groups {
+@@ -787,6 +790,7 @@ mod tests {
+     args: ["--evaluate"],
+     overrides: map!{},
+     subcommand: Subcommand::Evaluate {
++      format: EvaluateFormat::Just,
+       path: Modulepath::default(),
+     },
+   }
+@@ -796,6 +800,7 @@ mod tests {
+     args: ["--evaluate", "x=y"],
+     overrides: map!{"x": "y"},
+     subcommand: Subcommand::Evaluate {
++      format: EvaluateFormat::Just,
+       path: Modulepath::default(),
+     },
+   }
+@@ -805,6 +810,7 @@ mod tests {
+     args: ["--evaluate", "x=y", "foo"],
+     overrides: map!{"x": "y"},
+     subcommand: Subcommand::Evaluate {
++      format: EvaluateFormat::Just,
+       path: Modulepath::try_from(["foo"].as_slice()).unwrap(),
+     },
+   }
+diff --git a/src/evaluate_format.rs b/src/evaluate_format.rs
+new file mode 100644
+index 0000000000..549d72e4bc
+--- /dev/null
++++ b/src/evaluate_format.rs
+@@ -0,0 +1,8 @@
++use super::*;
++
++#[derive(Clone, Copy, Debug, Default, PartialEq, ValueEnum)]
++pub(crate) enum EvaluateFormat {
++  #[default]
++  Just,
++  Shell,
++}
+diff --git a/src/justfile.rs b/src/justfile.rs
+index 9487ee5451..7ff064a685 100644
+--- a/src/justfile.rs
++++ b/src/justfile.rs
+@@ -254,7 +254,7 @@ impl<'src> Justfile<'src> {
+ 
+         Ok(())
+       }
+-      Subcommand::Evaluate { path } => {
++      Subcommand::Evaluate { format, path } => {
+         let (module, variable, variable_references) = self.evaluation_target(path)?;
+ 
+         self.evaluate_scopes(
+@@ -277,12 +277,29 @@ impl<'src> Justfile<'src> {
+ 
+           for binding in scope.bindings() {
+             if !binding.private {
+-              println!(
+-                "{0:1$} := \"{2}\"",
+-                binding.name.lexeme(),
+-                width,
+-                binding.value
+-              );
++              match format {
++                EvaluateFormat::Just => {
++                  println!(
++                    "{0:1$} := \"{2}\"",
++                    binding.name.lexeme(),
++                    width,
++                    binding.value,
++                  );
++                }
++                EvaluateFormat::Shell => {
++                  if binding.export || module.settings.export {
++                    print!("export ");
++                  }
++                  print!("{}=\"", binding.name);
++                  for c in binding.value.chars() {
++                    if matches!(c, '!' | '"' | '$' | '\\' | '`') {
++                      print!("\\");
++                    }
++                    print!("{c}");
++                  }
++                  println!("\"");
++                }
++              }
+             }
+           }
+         }
+diff --git a/src/lib.rs b/src/lib.rs
+index a0ddb43501..036b8033d4 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -37,6 +37,7 @@ pub(crate) use {
+     dump_format::DumpFormat,
+     enclosure::Enclosure,
+     error::Error,
++    evaluate_format::EvaluateFormat,
+     evaluator::Evaluator,
+     execution_context::ExecutionContext,
+     executor::Executor,
+@@ -224,6 +225,7 @@ mod dependency;
+ mod dump_format;
+ mod enclosure;
+ mod error;
++mod evaluate_format;
+ mod evaluator;
+ mod execution_context;
+ mod executor;
+diff --git a/src/subcommand.rs b/src/subcommand.rs
+index d68e5082e8..32e5840547 100644
+--- a/src/subcommand.rs
++++ b/src/subcommand.rs
+@@ -30,6 +30,7 @@ pub(crate) enum Subcommand {
+   },
+   Edit,
+   Evaluate {
++    format: EvaluateFormat,
+     path: Modulepath,
+   },
+   Format,
+diff --git a/tests/evaluate.rs b/tests/evaluate.rs
+index 34badfce27..ab1fc521cf 100644
+--- a/tests/evaluate.rs
++++ b/tests/evaluate.rs
+@@ -238,3 +238,77 @@ fn dont_evaluate_unnecessary_variables() {
+     .stdout("FOO")
+     .success();
+ }
++
++#[test]
++fn format_shell() {
++  Test::new()
++    .args(["--evaluate", "--evaluate-format", "shell"])
++    .justfile(
++      "
++        foo := 'a'
++        hello := 'b'
++        bar := 'c'
++      ",
++    )
++    .stdout(
++      r#"
++        bar="c"
++        foo="a"
++        hello="b"
++      "#,
++    )
++    .success();
++}
++
++#[test]
++fn format_shell_special_characters_are_escaped() {
++  Test::new()
++    .args(["--evaluate", "--evaluate-format", "shell"])
++    .justfile(
++      r#"
++        foo := '!"$\`'
++      "#,
++    )
++    .stdout(
++      r#"
++        foo="\!\"\$\\\`"
++      "#,
++    )
++    .success();
++}
++
++#[test]
++fn format_shell_exported_variables_are_exported() {
++  Test::new()
++    .args(["--evaluate", "--evaluate-format", "shell"])
++    .justfile(
++      "
++        export foo := 'bar'
++      ",
++    )
++    .stdout(
++      r#"
++        export foo="bar"
++      "#,
++    )
++    .success();
++}
++
++#[test]
++fn format_shell_variables_are_exported_with_setting() {
++  Test::new()
++    .args(["--evaluate", "--evaluate-format", "shell"])
++    .justfile(
++      "
++        set export
++
++        foo := 'bar'
++      ",
++    )
++    .stdout(
++      r#"
++        export foo="bar"
++      "#,
++    )
++    .success();
++}

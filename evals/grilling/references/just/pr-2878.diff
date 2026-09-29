@@ -1,0 +1,246 @@
+diff --git a/README.md b/README.md
+index e8eb736ec7..4992661c44 100644
+--- a/README.md
++++ b/README.md
+@@ -723,9 +723,12 @@ Features
+ 
+ ### The Default Recipe
+ 
+-When `just` is invoked without a recipe, it runs the first recipe in the
+-`justfile`. This recipe might be the most frequently run command in the
+-project, like running the tests:
++When `just` is invoked without a recipe, it runs the recipe with the
++`[default]` attribute, or the first recipe in the `justfile` if no recipe has
++the `[default]` attribute.
++
++This recipe might be the most frequently run command in the project, like
++running the tests:
+ 
+ ```just
+ test:
+@@ -2107,6 +2110,7 @@ change their behavior.
+ |------|------|-------------|
+ | `[confirm]`<sup>1.17.0</sup> | recipe | Require confirmation prior to executing recipe. |
+ | `[confirm(PROMPT)]`<sup>1.23.0</sup> | recipe | Require confirmation prior to executing recipe with a custom prompt. |
++| `[default]`<sup>master</sup> | recipe | Use recipe as module's default recipe. |
+ | `[doc(DOC)]`<sup>1.27.0</sup> | module, recipe | Set recipe or module's [documentation comment](#documentation-comments) to `DOC`. |
+ | `[extension(EXT)]`<sup>1.32.0</sup> | recipe | Set shebang recipe script's file extension to `EXT`. `EXT` should include a period if one is desired. |
+ | `[group(NAME)]`<sup>1.27.0</sup> | module, recipe | Put recipe or module in in [group](#groups) `NAME`. |
+diff --git a/src/analyzer.rs b/src/analyzer.rs
+index 81d61e51c4..70abef9b0c 100644
+--- a/src/analyzer.rs
++++ b/src/analyzer.rs
+@@ -94,7 +94,7 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+           }
+           Item::Unexport { name } => {
+             if !self.unexports.insert(name.lexeme().to_string()) {
+-              return Err(name.token.error(DuplicateUnexport {
++              return Err(name.error(DuplicateUnexport {
+                 variable: name.lexeme(),
+               }));
+             }
+@@ -112,7 +112,7 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+       let variable = assignment.name.lexeme();
+ 
+       if !settings.allow_duplicate_variables && assignments.contains_key(variable) {
+-        return Err(assignment.name.token.error(DuplicateVariable { variable }));
++        return Err(assignment.name.error(DuplicateVariable { variable }));
+       }
+ 
+       if assignments.get(variable).map_or(true, |original| {
+@@ -122,7 +122,7 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+       }
+ 
+       if self.unexports.contains(variable) {
+-        return Err(assignment.name.token.error(ExportUnexported { variable }));
++        return Err(assignment.name.error(ExportUnexported { variable }));
+       }
+     }
+ 
+@@ -172,10 +172,21 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+     let source = root.to_owned();
+     let root = paths.get(root).unwrap();
+ 
+-    Ok(Justfile {
+-      aliases,
+-      assignments,
+-      default: recipes
++    let mut default = None;
++    for recipe in recipes.values() {
++      if recipe.attributes.contains(AttributeDiscriminant::Default) {
++        if default.is_some() {
++          return Err(recipe.name.error(CompileErrorKind::DuplicateDefault {
++            recipe: recipe.name.lexeme(),
++          }));
++        }
++
++        default = Some(Arc::clone(recipe));
++      }
++    }
++
++    let default = default.or_else(|| {
++      recipes
+         .values()
+         .filter(|recipe| recipe.name.path == root)
+         .fold(None, |accumulator, next| match accumulator {
+@@ -185,7 +196,13 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+           } else {
+             Arc::clone(next)
+           }),
+-        }),
++        })
++    });
++
++    Ok(Justfile {
++      aliases,
++      assignments,
++      default,
+       doc: doc.filter(|doc| !doc.is_empty()),
+       groups: groups.into(),
+       loaded: loaded.into(),
+@@ -236,7 +253,7 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+ 
+     for parameter in &recipe.parameters {
+       if parameters.contains(parameter.name.lexeme()) {
+-        return Err(parameter.name.token.error(DuplicateParameter {
++        return Err(parameter.name.error(DuplicateParameter {
+           recipe: recipe.name.lexeme(),
+           parameter: parameter.name.lexeme(),
+         }));
+@@ -304,7 +321,7 @@ impl<'run, 'src> Analyzer<'run, 'src> {
+   ) -> CompileResult<'src, Alias<'src>> {
+     match Self::resolve_recipe(&alias.target, modules, recipes) {
+       Some(target) => Ok(alias.resolve(target)),
+-      None => Err(alias.name.token.error(UnknownAliasTarget {
++      None => Err(alias.name.error(UnknownAliasTarget {
+         alias: alias.name.lexeme(),
+         target: alias.target,
+       })),
+diff --git a/src/attribute.rs b/src/attribute.rs
+index 9fa37aa676..e37f1f5101 100644
+--- a/src/attribute.rs
++++ b/src/attribute.rs
+@@ -10,6 +10,7 @@ use super::*;
+ #[strum_discriminants(strum(serialize_all = "kebab-case"))]
+ pub(crate) enum Attribute<'src> {
+   Confirm(Option<StringLiteral<'src>>),
++  Default,
+   Doc(Option<StringLiteral<'src>>),
+   ExitMessage,
+   Extension(StringLiteral<'src>),
+@@ -34,7 +35,8 @@ impl AttributeDiscriminant {
+   fn argument_range(self) -> RangeInclusive<usize> {
+     match self {
+       Self::Confirm | Self::Doc => 0..=1,
+-      Self::ExitMessage
++      Self::Default
++      | Self::ExitMessage
+       | Self::Linux
+       | Self::Macos
+       | Self::NoCd
+@@ -83,6 +85,7 @@ impl<'src> Attribute<'src> {
+ 
+     Ok(match discriminant {
+       AttributeDiscriminant::Confirm => Self::Confirm(arguments.into_iter().next()),
++      AttributeDiscriminant::Default => Self::Default,
+       AttributeDiscriminant::Doc => Self::Doc(arguments.into_iter().next()),
+       AttributeDiscriminant::ExitMessage => Self::ExitMessage,
+       AttributeDiscriminant::Extension => Self::Extension(arguments.into_iter().next().unwrap()),
+@@ -131,6 +134,7 @@ impl Display for Attribute<'_> {
+ 
+     match self {
+       Self::Confirm(None)
++      | Self::Default
+       | Self::Doc(None)
+       | Self::ExitMessage
+       | Self::Linux
+diff --git a/src/compile_error.rs b/src/compile_error.rs
+index 750d72f50b..50b2c6c689 100644
+--- a/src/compile_error.rs
++++ b/src/compile_error.rs
+@@ -103,6 +103,10 @@ impl Display for CompileError<'_> {
+         first.ordinal(),
+         self.token.line.ordinal(),
+       ),
++      DuplicateDefault { recipe } => write!(
++        f,
++        "Recipe `{recipe}` has duplicate `[default]` attribute, which may only appear once per module",
++      ),
+       DuplicateParameter { recipe, parameter } => {
+         write!(f, "Recipe `{recipe}` has duplicate parameter `{parameter}`")
+       }
+diff --git a/src/compile_error_kind.rs b/src/compile_error_kind.rs
+index 213b281256..81b1a67ab9 100644
+--- a/src/compile_error_kind.rs
++++ b/src/compile_error_kind.rs
+@@ -27,6 +27,9 @@ pub(crate) enum CompileErrorKind<'src> {
+     attribute: &'src str,
+     first: usize,
+   },
++  DuplicateDefault {
++    recipe: &'src str,
++  },
+   DuplicateParameter {
+     recipe: &'src str,
+     parameter: &'src str,
+diff --git a/tests/default.rs b/tests/default.rs
+new file mode 100644
+index 0000000000..398751b253
+--- /dev/null
++++ b/tests/default.rs
+@@ -0,0 +1,43 @@
++use super::*;
++
++#[test]
++fn default_attribute_overrides_first_recipe() {
++  Test::new()
++    .justfile(
++      "
++        foo:
++          @echo FOO
++
++        [default]
++        bar:
++          @echo BAR
++      ",
++    )
++    .stdout("BAR\n")
++    .run();
++}
++
++#[test]
++fn default_attribute_may_only_appear_once_per_justfile() {
++  Test::new()
++    .justfile(
++      "
++        [default]
++        foo:
++
++        [default]
++        bar:
++      ",
++    )
++    .stderr(
++      "
++        error: Recipe `foo` has duplicate `[default]` attribute, which may only appear once per module
++         ——▶ justfile:2:1
++          │
++        2 │ foo:
++          │ ^^^
++      "
++    )
++    .status(EXIT_FAILURE)
++    .run();
++}
+diff --git a/tests/lib.rs b/tests/lib.rs
+index daae4f5ac0..450ac29525 100644
+--- a/tests/lib.rs
++++ b/tests/lib.rs
+@@ -61,6 +61,7 @@ mod conditional;
+ mod confirm;
+ mod constants;
+ mod datetime;
++mod default;
+ mod delimiters;
+ mod dependencies;
+ mod directories;

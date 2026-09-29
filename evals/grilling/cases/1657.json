@@ -1,0 +1,18 @@
+{
+  "id": "1657",
+  "title": "Assert expression",
+  "base": "e11684008e758424d9fbef2eae35c1c0be4962d7",
+  "opening": "我在 recipe 里经常写 `{{ if cond { error(\"...\") } else { \"\" } }}` 来做前置检查，那个空的 else 分支很难看。我想要一个更干净的方式：条件不满足就报错，满足就什么都不做。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "decisions": [
+    "不让 else 变成可选",
+    "新增 assert(CONDITION, MESSAGE)，命名 assert",
+    "关键字表达式，条件用 if 的比较运算",
+    "成立时为空字符串，不成立报错 Assert failed: MESSAGE",
+    "可用于任何表达式位置"
+  ],
+  "non_goals": [
+    "可选 else 分支",
+    "ensure/error_if 函数"
+  ],
+  "brief": "你是just 的维护者兼这个需求的提出者。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 不把 if 的 else 分支改成可选，因为 just 的表达式都必须有值。\n2. 新增 `assert(CONDITION, MESSAGE)` 表达式，名字用 assert，不用 ensure/error_if。\n3. 它是语法层面的关键字表达式（和 if 一样），CONDITION 使用与 if 相同的比较运算（`==`、`!=`、`=~`），而不是普通函数接收字符串布尔值。\n4. 条件成立时求值为空字符串；不成立时报错，错误信息为 `Assert failed: MESSAGE`，运行终止。\n5. 可以用在任何表达式能出现的地方：变量赋值、recipe 里的插值、参数默认值等。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。"
+}

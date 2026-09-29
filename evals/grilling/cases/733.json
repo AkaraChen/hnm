@@ -1,0 +1,19 @@
+{
+  "id": "733",
+  "title": "dotenv-override",
+  "base": "0514c2c45436f6c8b3efc93ee914665e5e5c73ae",
+  "opening": "我想让 `.env` 文件里的变量能覆盖已经存在的环境变量。我的场景是 nix dotfiles：安装配置时想按机器用 `.env` 覆盖 `$USER`。现在 just 加载 `.env` 时会跳过已经存在的环境变量。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "decisions": [
+    "justfile 设置 set dotenv-override，布尔默认 false",
+    "开启后 .env 覆盖已有环境变量",
+    "env_var()/env() 也返回 .env 的值",
+    "设置 dotenv-override 即隐含加载 dotenv",
+    "默认行为不变"
+  ],
+  "non_goals": [
+    "dotenv() 函数",
+    "命令行开关",
+    "多 .env 文件"
+  ],
+  "brief": "你是这个需求的提出者，维护者已经认可了方案。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 做成 justfile 布尔设置 `set dotenv-override`，默认 false，而不是新增 `dotenv()` 函数。\n2. 开启后，`.env` 里的值覆盖进程里已有的同名环境变量，recipe 里看到的是 `.env` 的值。\n3. `env_var()`/`env()` 函数在开启后也返回 `.env` 里的值，与 recipe 环境一致。\n4. 只要设置了 `dotenv-override`（或其它任意 dotenv-* 设置），就视为要加载 dotenv，不需要再额外写 `set dotenv-load`。\n5. 默认行为不变：不开启时环境变量仍然优先。\n6. 这次不做命令行开关，也不做 `.env.local` 之类的多文件。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。"
+}

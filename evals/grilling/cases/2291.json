@@ -1,0 +1,18 @@
+{
+  "id": "2291",
+  "title": "set no-cd",
+  "base": "f9953f9b6b331fd3a870d3347586cc7e376a82ad",
+  "opening": "我在 `~/Projects/justfile` 放了一个共用的 justfile，给下面几十个 terraform 项目用。每个 recipe 都得在调用时所在的目录里跑，所以我每个 recipe 都要写 `[no-cd]`，很烦。希望能有个办法让整个 justfile 默认不切换目录。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "decisions": [
+    "justfile 设置 set no-cd，布尔默认 false",
+    "只作用于当前 module，子模块不继承",
+    "[working-directory] 属性可覆盖该设置",
+    "与 set working-directory 互斥并报错",
+    "只影响 recipe 执行目录，反引号/函数求值不变"
+  ],
+  "non_goals": [
+    "[do-cd] 反向属性",
+    "改变反引号/路径函数的解析基准"
+  ],
+  "brief": "你是这个需求的提出者，维护者已经认可了方案。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 做成 justfile 设置 `set no-cd`（布尔，默认 false），让当前 module 的所有 recipe 默认不切换目录。\n2. 只作用于当前 module，子模块不继承。\n3. 单个 recipe 仍可用 `[working-directory(...)]` 属性覆盖这个设置（改回指定目录运行）。\n4. `set no-cd` 与 `set working-directory` 互斥，同时出现报错。\n5. 只影响 recipe 执行时的工作目录；反引号、`shell()` 以及路径相关函数的求值行为不变（仍相对 module 目录）。\n6. 不新增 `[do-cd]` 之类的反向属性。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。"
+}

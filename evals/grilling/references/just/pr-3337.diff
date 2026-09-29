@@ -1,0 +1,539 @@
+diff --git a/GRAMMAR.md b/GRAMMAR.md
+index 00b0e6a5a3..0ccb7d2625 100644
+--- a/GRAMMAR.md
++++ b/GRAMMAR.md
+@@ -72,6 +72,7 @@ set           : 'set' setting eol
+ 
+ setting       : 'allow-duplicate-recipes' boolean?
+               | 'allow-duplicate-variables' boolean?
++              | 'default-list' boolean?
+               | 'dotenv-filename' ':=' string
+               | 'dotenv-load' boolean?
+               | 'dotenv-path' ':=' string
+diff --git a/README.md b/README.md
+index 57e0d5842f..045076c310 100644
+--- a/README.md
++++ b/README.md
+@@ -656,7 +656,8 @@ The search for a `justfile` is case insensitive, so any case, like `Justfile`,
+ `JUSTFILE`, or `JuStFiLe`, will work. `just` will also look for files with the
+ name `.justfile`, in case you'd like to hide a `justfile`.
+ 
+-Running `just` with no arguments runs the first recipe in the `justfile`:
++By default, running `just` with no arguments runs the first recipe in the
++`justfile`:
+ 
+ ```console
+ $ just
+@@ -772,12 +773,11 @@ lint:
+   echo Linting…
+ ```
+ 
+-If no recipe makes sense as the default recipe, you can add a recipe to the
+-beginning of your `justfile` that lists the available recipes:
++If no recipe makes sense as the default recipe, you can use
++`default-list`<sup>master</sup> to list the available recipes instead:
+ 
+ ```just
+-default:
+-  just --list
++set default-list := true
+ ```
+ 
+ ### Listing Available Recipes
+@@ -840,20 +840,15 @@ $ just --summary --unsorted
+ test build
+ ```
+ 
+-If you'd like `just` to default to listing the recipes in the `justfile`, you
+-can use this as your default recipe:
++If you'd like `just` to default to listing the recipes in the `justfile`, set
++`default-list`<sup>master</sup>:
+ 
+ ```just
+-default:
+-  @just --list
++set default-list := true
+ ```
+ 
+-Note that you may need to add `--justfile {{justfile()}}` to the line above.
+-Without it, if you executed `just -f /some/distant/justfile -d .` or
+-`just -f ./non-standard-justfile`, the plain `just --list` inside the recipe
+-would not necessarily use the file you provided. It would try to find a
+-justfile in your current path, maybe even resulting in a `No justfile found`
+-error.
++The setting is per-module, so invoking a module path with `default-list`
++enabled lists that module's recipes.
+ 
+ The heading text can be customized with `--list-heading`:
+ 
+@@ -1040,6 +1035,7 @@ foo:
+ |------|-------|---------|-------------|
+ | `allow-duplicate-recipes` | boolean | `false` | Allow recipes appearing later in a `justfile` to override earlier recipes with the same name. |
+ | `allow-duplicate-variables` | boolean | `false` | Allow variables appearing later in a `justfile` to override earlier variables with the same name. |
++| `default-list` | boolean | `false` | List recipes instead of running the default recipe. |
+ | `dotenv-filename` | string | - | Load a `.env` file with a custom name, if present. |
+ | `dotenv-load` | boolean | `false` | Load a `.env` file, if present. |
+ | `dotenv-override` | boolean | `false` | Override existing environment variables with values from the `.env` file. |
+diff --git a/src/evaluator.rs b/src/evaluator.rs
+index 72151cd4cd..fbaa40e685 100644
+--- a/src/evaluator.rs
++++ b/src/evaluator.rs
+@@ -73,6 +73,9 @@ impl<'src, 'run> Evaluator<'src, 'run> {
+         Setting::AllowDuplicateVariables(value) => {
+           settings.allow_duplicate_variables = value;
+         }
++        Setting::DefaultList(value) => {
++          settings.default_list = value;
++        }
+         Setting::DotenvFilename(value) => {
+           settings.dotenv_filename = Some(self.evaluate_expression(&value)?);
+         }
+diff --git a/src/invocation_parser.rs b/src/invocation_parser.rs
+index 4528b548de..6947d45499 100644
+--- a/src/invocation_parser.rs
++++ b/src/invocation_parser.rs
+@@ -50,16 +50,15 @@ impl<'src: 'run, 'run> InvocationParser<'src, 'run> {
+   fn parse_invocation(&mut self) -> RunResult<'src, Invocation<'src, 'run>> {
+     let recipe = if let Some(next) = self.next() {
+       if next.contains(':') {
+-        let path = if self.next + 1 == self.arguments.len() {
+-          next.strip_suffix("::").unwrap_or(next)
++        let modulepath = if self.next + 1 == self.arguments.len() {
++          Modulepath::from_argument(next)
+         } else {
+-          next
+-        };
+-        let modulepath =
+-          Modulepath::try_from([path].as_slice()).map_err(|()| Error::UnknownRecipe {
+-            recipe: next.into(),
+-            suggestion: None,
+-          })?;
++          Modulepath::try_from([next].as_slice())
++        }
++        .map_err(|()| Error::UnknownRecipe {
++          recipe: next.into(),
++          suggestion: None,
++        })?;
+         let (recipe, _) = self.resolve_recipe(true, &modulepath.components)?;
+         self.next += 1;
+         recipe
+diff --git a/src/justfile.rs b/src/justfile.rs
+index 6da3200684..617b2710b0 100644
+--- a/src/justfile.rs
++++ b/src/justfile.rs
+@@ -413,6 +413,16 @@ impl<'src> Justfile<'src> {
+     self.name.is_some()
+   }
+ 
++  pub(crate) fn submodule(&self, path: &Modulepath) -> Option<&Justfile<'src>> {
++    let mut module = self;
++
++    for component in &path.components {
++      module = module.modules.get(component)?;
++    }
++
++    Some(module)
++  }
++
+   pub(crate) fn name(&self) -> &'src str {
+     self.name.map(|name| name.lexeme()).unwrap_or_default()
+   }
+diff --git a/src/keyword.rs b/src/keyword.rs
+index 7b75d0a3a3..588d8dd3a7 100644
+--- a/src/keyword.rs
++++ b/src/keyword.rs
+@@ -7,6 +7,7 @@ pub(crate) enum Keyword {
+   AllowDuplicateRecipes,
+   AllowDuplicateVariables,
+   Assert,
++  DefaultList,
+   DotenvFilename,
+   DotenvLoad,
+   DotenvOverride,
+diff --git a/src/modulepath.rs b/src/modulepath.rs
+index cc97913ce5..fb65a83910 100644
+--- a/src/modulepath.rs
++++ b/src/modulepath.rs
+@@ -20,6 +20,10 @@ impl Modulepath {
+   pub(crate) fn starts_with(&self, other: &Modulepath) -> bool {
+     self.components.starts_with(&other.components)
+   }
++
++  pub(crate) fn from_argument(argument: &str) -> Result<Self, ()> {
++    Self::try_from([argument.strip_suffix("::").unwrap_or(argument)].as_slice())
++  }
+ }
+ 
+ impl Serialize for Modulepath {
+diff --git a/src/node.rs b/src/node.rs
+index 188353014a..dad121407c 100644
+--- a/src/node.rs
++++ b/src/node.rs
+@@ -275,6 +275,7 @@ impl<'src> Node<'src> for Set<'src> {
+     match &self.value {
+       Setting::AllowDuplicateRecipes(value)
+       | Setting::AllowDuplicateVariables(value)
++      | Setting::DefaultList(value)
+       | Setting::DotenvLoad(value)
+       | Setting::DotenvOverride(value)
+       | Setting::DotenvRequired(value)
+diff --git a/src/parser.rs b/src/parser.rs
+index ce367a3622..b251abfb5c 100644
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -1408,6 +1408,7 @@ impl<'run, 'src> Parser<'run, 'src> {
+       Keyword::AllowDuplicateVariables => {
+         Some(Setting::AllowDuplicateVariables(self.parse_set_bool()?))
+       }
++      Keyword::DefaultList => Some(Setting::DefaultList(self.parse_set_bool()?)),
+       Keyword::DotenvLoad => Some(Setting::DotenvLoad(self.parse_set_bool()?)),
+       Keyword::DotenvOverride => Some(Setting::DotenvOverride(self.parse_set_bool()?)),
+       Keyword::DotenvRequired => Some(Setting::DotenvRequired(self.parse_set_bool()?)),
+diff --git a/src/setting.rs b/src/setting.rs
+index 58c8ed10fb..890c807e93 100644
+--- a/src/setting.rs
++++ b/src/setting.rs
+@@ -4,6 +4,7 @@ use super::*;
+ pub(crate) enum Setting<'src> {
+   AllowDuplicateRecipes(bool),
+   AllowDuplicateVariables(bool),
++  DefaultList(bool),
+   DotenvFilename(Expression<'src>),
+   DotenvLoad(bool),
+   DotenvOverride(bool),
+@@ -32,6 +33,7 @@ impl<'src> Setting<'src> {
+     match self {
+       Self::AllowDuplicateRecipes(value)
+       | Self::AllowDuplicateVariables(value)
++      | Self::DefaultList(value)
+       | Self::DotenvLoad(value)
+       | Self::DotenvOverride(value)
+       | Self::DotenvRequired(value)
+@@ -82,6 +84,7 @@ impl Display for Setting<'_> {
+     match self {
+       Self::AllowDuplicateRecipes(value)
+       | Self::AllowDuplicateVariables(value)
++      | Self::DefaultList(value)
+       | Self::DotenvLoad(value)
+       | Self::DotenvOverride(value)
+       | Self::DotenvRequired(value)
+diff --git a/src/settings.rs b/src/settings.rs
+index 460061b160..23fafdcebf 100644
+--- a/src/settings.rs
++++ b/src/settings.rs
+@@ -9,6 +9,7 @@ pub(crate) const WINDOWS_POWERSHELL_ARGS: &[&str] = &["-NoLogo", "-Command"];
+ pub(crate) struct Settings {
+   pub(crate) allow_duplicate_recipes: bool,
+   pub(crate) allow_duplicate_variables: bool,
++  pub(crate) default_list: bool,
+   pub(crate) dotenv_filename: Option<String>,
+   pub(crate) dotenv_load: bool,
+   pub(crate) dotenv_override: bool,
+diff --git a/src/subcommand.rs b/src/subcommand.rs
+index b4582da987..7fb0bf6927 100644
+--- a/src/subcommand.rs
++++ b/src/subcommand.rs
+@@ -136,6 +136,33 @@ impl Subcommand {
+     self.into()
+   }
+ 
++  fn default_list_module(justfile: &Justfile, arguments: &[String]) -> Option<Modulepath> {
++    let path = if arguments.is_empty() {
++      Modulepath::default()
++    } else if arguments[0].contains(':') {
++      if arguments.len() != 1 {
++        return None;
++      }
++
++      Modulepath::from_argument(&arguments[0]).ok()?
++    } else {
++      Modulepath::try_from(
++        arguments
++          .iter()
++          .map(String::as_str)
++          .collect::<Vec<&str>>()
++          .as_slice(),
++      )
++      .ok()?
++    };
++
++    justfile
++      .submodule(&path)?
++      .settings
++      .default_list
++      .then_some(path)
++  }
++
+   fn run<'src>(
+     config: &Config,
+     loader: &'src Loader,
+@@ -153,6 +180,10 @@ impl Subcommand {
+           SearchConfig::FromInvocationDirectory | SearchConfig::FromSearchDirectory { .. }
+         );
+ 
++      if let Some(path) = Self::default_list_module(justfile, arguments) {
++        return Self::list(config, justfile, &path);
++      }
++
+       let result = justfile.run(config, &search, arguments, &compilation.overrides);
+ 
+       if fallback {
+@@ -471,15 +502,12 @@ impl Subcommand {
+     Ok(())
+   }
+ 
+-  fn list(config: &Config, mut module: &Justfile, path: &Modulepath) -> RunResult<'static> {
+-    for name in &path.components {
+-      module = module
+-        .modules
+-        .get(name)
+-        .ok_or_else(|| Error::UnknownSubmodule {
+-          path: path.to_string(),
+-        })?;
+-    }
++  fn list(config: &Config, module: &Justfile, path: &Modulepath) -> RunResult<'static> {
++    let module = module
++      .submodule(path)
++      .ok_or_else(|| Error::UnknownSubmodule {
++        path: path.to_string(),
++      })?;
+ 
+     Self::list_module(config, 0, &config.groups, module)?;
+ 
+diff --git a/tests/default.rs b/tests/default.rs
+index ce21a2cba0..16f2db9317 100644
+--- a/tests/default.rs
++++ b/tests/default.rs
+@@ -40,3 +40,85 @@ fn default_attribute_may_only_appear_once_per_justfile() {
+     )
+     .failure();
+ }
++
++#[test]
++fn default_list_lists_recipes() {
++  Test::new()
++    .justfile(
++      "
++        set default-list := true
++
++        foo:
++          @echo foo
++
++        bar:
++      ",
++    )
++    .stdout(
++      "
++        Available recipes:
++            bar
++            foo
++      ",
++    )
++    .success();
++}
++
++#[test]
++fn default_list_false_runs_default_recipe() {
++  Test::new()
++    .justfile(
++      "
++        set default-list := false
++
++        foo:
++          @echo foo
++
++        bar:
++      ",
++    )
++    .stdout("foo\n")
++    .success();
++}
++
++#[test]
++fn default_list_does_not_override_explicit_recipe() {
++  Test::new()
++    .justfile(
++      "
++        set default-list
++
++        foo:
++          @echo foo
++
++        bar:
++          @echo bar
++      ",
++    )
++    .arg("bar")
++    .stdout("bar\n")
++    .success();
++}
++
++#[test]
++fn default_list_allows_default_recipe_with_arguments() {
++  Test::new()
++    .justfile(
++      "
++        set default-list
++
++        foo bar:
++          @echo {{bar}}
++
++        baz:
++      ",
++    )
++    .stdout(
++      "
++        Available recipes:
++            baz
++            foo bar
++      ",
++    )
++    .success();
++}
+diff --git a/tests/json.rs b/tests/json.rs
+index ad7ae55e84..1634827a45 100644
+--- a/tests/json.rs
++++ b/tests/json.rs
+@@ -84,6 +84,7 @@ struct Recipe<'a> {
+ struct Settings<'a> {
+   allow_duplicate_recipes: bool,
+   allow_duplicate_variables: bool,
++  default_list: bool,
+   dotenv_filename: Option<&'a str>,
+   dotenv_load: bool,
+   dotenv_override: bool,
+@@ -678,6 +679,7 @@ fn settings() {
+   case(
+     "
+       set allow-duplicate-recipes
++      set default-list
+       set dotenv-filename := \"filename\"
+       set dotenv-load
+       set dotenv-path := \"path\"
+@@ -705,6 +707,7 @@ fn settings() {
+       .into(),
+       settings: Settings {
+         allow_duplicate_recipes: true,
++        default_list: true,
+         dotenv_filename: Some("filename"),
+         dotenv_path: Some("path"),
+         dotenv_load: true,
+diff --git a/tests/modules.rs b/tests/modules.rs
+index af746534a0..977ae72eb3 100644
+--- a/tests/modules.rs
++++ b/tests/modules.rs
+@@ -129,6 +129,114 @@ fn module_subcommand_runs_default_recipe() {
+     .success();
+ }
+ 
++#[test]
++fn module_subcommand_lists_recipes_with_default_list() {
++  Test::new()
++    .write(
++      "foo.just",
++      "set default-list := true
++
++foo:
++  @echo FOO
++
++bar:
++",
++    )
++    .justfile(
++      "
++        mod foo
++      ",
++    )
++    .arg("foo")
++    .stdout(
++      "
++        Available recipes:
++            bar
++            foo
++      ",
++    )
++    .success();
++}
++
++#[test]
++fn root_default_list_does_not_affect_submodule_default_recipe() {
++  Test::new()
++    .write("foo.just", "foo:\n @echo FOO")
++    .justfile(
++      "
++        set default-list := true
++
++        mod foo
++      ",
++    )
++    .arg("foo")
++    .stdout("FOO\n")
++    .success();
++}
++
++#[test]
++fn nested_module_subcommand_lists_recipes_with_default_list() {
++  #[track_caller]
++  fn case(args: &[&str]) {
++    Test::new()
++      .write(
++        "foo.just", "mod bar
++",
++      )
++      .write(
++        "bar.just",
++        "set default-list := true
++
++baz:
++  @echo BAZ
++
++qux:
++",
++      )
++      .justfile(
++        "
++          mod foo
++        ",
++      )
++      .args(args)
++      .stdout(
++        "
++          Available recipes:
++              baz
++              qux
++        ",
++      )
++      .success();
++  }
++
++  case(&["foo", "bar"]);
++  case(&["foo::bar"]);
++  case(&["foo::bar::"]);
++}
++
++#[test]
++fn module_default_list_does_not_override_explicit_recipe() {
++  Test::new()
++    .write(
++      "foo.just",
++      "set default-list := true
++
++bar:
++  @echo BAR
++
++baz:
++",
++    )
++    .justfile(
++      "
++        mod foo
++      ",
++    )
++    .args(["foo", "bar"])
++    .stdout("BAR\n")
++    .success();
++}
++
+ #[test]
+ fn modules_can_contain_other_modules() {
+   Test::new()

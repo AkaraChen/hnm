@@ -1,0 +1,18 @@
+{
+  "id": "2872",
+  "title": "[default] attribute",
+  "base": "f5ffec5c74bd9e290d6539d5dc28cdea34b210f2",
+  "opening": "我在 `~/.justfile` 里写了一套通用的 recipe（第一个是我自定义的 `list`），然后每个项目的 justfile 开头都写 `import '~/.justfile'`。但不带参数运行 `just` 时，跑的是项目文件里第一个 recipe，而不是 import 进来的 `list`。我希望能控制哪个 recipe 是默认的。请用 $feature-dev 跟我把这个需求质问清楚。",
+  "decisions": [
+    "不改 import 的 recipe 顺序",
+    "新增 [default] 属性覆盖第一个 recipe 规则",
+    "没有 [default] 时保持第一个 recipe",
+    "可以写在 import 的文件里",
+    "每个 module 至多一个，重复报错",
+    "按 module 生效"
+  ],
+  "non_goals": [
+    "把 import 的 recipe 前置"
+  ],
+  "brief": "你是just 的维护者兼这个需求的提出者。你心里已经想清楚了下面这些决定，只在被问到相关问题时如实回答，不要主动一次性倒出来：\n1. 不改 import 的排序规则（不把 import 的 recipe 前置），因为不同人会想要不同的行为。\n2. 新增 recipe 属性 `[default]`，标记后它就是不带参数运行时执行的 recipe，覆盖“第一个 recipe”的规则。\n3. 没有 `[default]` 时保持现有行为：第一个 recipe。\n4. `[default]` 可以写在 import 进来的文件里的 recipe 上，也可以写在主 justfile 里。\n5. 每个 module 最多一个 `[default]`（包括 import 进来的），出现两个要报错：`Recipe foo has duplicate [default] attribute, which may only appear once per module`。\n6. `[default]` 按 module 生效，子模块各自有自己的默认 recipe。\n对于上面没有覆盖的问题，你没有特别想法，回答“没想过，按你觉得合理/符合仓库惯例的来”。"
+}
