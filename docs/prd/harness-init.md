@@ -57,6 +57,7 @@ Agent 项目需要一套稳定的 harness：三层文档（`docs/prd`、`docs/ad
 | `.claude/settings.json` | 静态 |
 | `.codex/hooks.json` | 静态 |
 | `.codex/hooks/spec_doc_review.py` | 静态 |
+| `.codex/hooks/grilling_check.py` | 静态 |
 
 ## 用户可见状态与失败行为
 
