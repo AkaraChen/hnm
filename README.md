@@ -120,10 +120,12 @@ project/
 │   └── git-commit/           Conventional commits from the diff
 ├── .claude/
 │   ├── skills → ../.agents/skills
-│   └── settings.json         Commit doc-review hook
+│   └── settings.json         Documentation review and clarification hooks
 └── .codex/
     ├── hooks.json
-    └── hooks/spec_doc_review.py
+    └── hooks/
+        ├── spec_doc_review.py
+        └── grilling_check.py
 ```
 
 The skills include `SKILL.md` and `agents/openai.yaml`; empty PRD/ADR directories
@@ -141,7 +143,10 @@ include `.gitkeep`. See the [complete generated layout](docs/spec.md#generated-h
   and `docs/spec.md` holds shared contracts.
 - **Review docs before committing.** `AGENTS.md`, `$git-commit`, and Claude/Codex
   hooks connect documentation review to commits in runtimes that load them.
-  The installed review hook requires Python 3 (`/usr/bin/python3` in the bundled
+  The English v3b grilling reminder supplies context on each user turn, scoped to
+  active feature-dev clarification. It respects settled decisions and delegated
+  authority; it is advisory rather than a permission gate.
+  The installed hooks require Python 3 (`/usr/bin/python3` in the bundled
   Codex configuration); adapt hook commands to your runtime and OS.
 
 [Release workflow](https://github.com/AkaraChen/hnm/actions/workflows/release.yml) ·

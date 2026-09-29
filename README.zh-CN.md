@@ -109,10 +109,12 @@ project/
 │   └── git-commit/           根据差异生成规范提交
 ├── .claude/
 │   ├── skills → ../.agents/skills
-│   └── settings.json         提交前文档审阅 hook
+│   └── settings.json         文档审阅与质问 hook
 └── .codex/
     ├── hooks.json
-    └── hooks/spec_doc_review.py
+    └── hooks/
+        ├── spec_doc_review.py
+        └── grilling_check.py
 ```
 
 每个技能包含 `SKILL.md` 和 `agents/openai.yaml`；空的 PRD/ADR 目录包含 `.gitkeep`。
@@ -127,7 +129,9 @@ project/
 - **先澄清，再实现。** `$feature-dev` 每次提出一个产品或技术问题（质问），在实现前记录计划。
 - **决策留在仓库。** PRD 描述要做什么，ADR 解释选择，`docs/spec.md` 维护共享约定。
 - **提交前审阅文档。** `AGENTS.md`、`$git-commit` 和 Claude/Codex hook 在支持加载它们的运行环境中关联文档审阅与提交。
-  内置审阅 hook 需要 Python 3（Codex 配置使用 `/usr/bin/python3`）；请按运行环境与操作系统调整 hook 命令。
+  英文 v3b 质问提醒在每轮用户输入时注入，仅适用于 feature-dev 质问阶段，
+  尊重已确认的决策与授权范围，作为上下文提醒，不阻断操作。
+  内置 hook 需要 Python 3（Codex 配置使用 `/usr/bin/python3`）；请按运行环境与操作系统调整 hook 命令。
 
 [发布工作流](https://github.com/AkaraChen/hnm/actions/workflows/release.yml) ·
 [发布版本](https://github.com/AkaraChen/hnm/releases/latest)

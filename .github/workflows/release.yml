@@ -47,6 +47,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
+      - run: python tests/grilling_hook_test.py
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - if: runner.os != 'Windows'
         run: sh scripts/package.sh ${{ matrix.target }}

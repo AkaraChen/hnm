@@ -121,6 +121,11 @@ pub fn harness_plan() -> Vec<PlanEntry> {
             update: Update::JsonMerge,
         },
         PlanEntry::File {
+            rel: ".codex/hooks/grilling_check.py",
+            kind: FileKind::Static(include_str!("../templates/.codex/hooks/grilling_check.py")),
+            update: Update::Keep,
+        },
+        PlanEntry::File {
             rel: ".codex/hooks/spec_doc_review.py",
             kind: FileKind::Static(include_str!("../templates/.codex/hooks/spec_doc_review.py")),
             update: Update::Keep,
@@ -155,6 +160,7 @@ mod tests {
             ".claude/settings.json",
             ".codex/hooks.json",
             ".codex/hooks/spec_doc_review.py",
+            ".codex/hooks/grilling_check.py",
         ] {
             assert!(rels.contains(required), "missing {required}");
         }

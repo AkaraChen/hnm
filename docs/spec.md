@@ -49,6 +49,7 @@ After a successful init into an empty directory, the target directory contains a
 | `.claude/settings.json` | file |
 | `.codex/hooks.json` | file |
 | `.codex/hooks/spec_doc_review.py` | file |
+| `.codex/hooks/grilling_check.py` | file |
 
 ### Generation rules
 
@@ -77,6 +78,16 @@ Generated `AGENTS.md` requires:
 - use `$git-commit` for conventional commits from the diff.
 
 The installed `feature-dev` skill, `git-commit` skill, and `spec_doc_review` hook implement those rules for agent runtimes that load project skills/hooks.
+
+### Clarification reminder
+
+The harness registers an advisory `UserPromptSubmit` hook in both runtime
+configurations. Each user turn receives an English v3b reminder, explicitly scoped
+to active feature-dev clarification. It respects settled decisions and delegated
+authority, asks only material questions requiring user input, and requests a short
+contract confirmation before writing PRD, ADR, and spec. Existing PRDs and missing
+transcripts do not suppress it. The hook only adds context and has no blocking or
+persistent side effects; malformed input and unrelated events produce no output.
 
 ## System-wide constraints
 
